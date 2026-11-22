@@ -1071,7 +1071,7 @@ fn remind_color(icon: u8) -> [u8; 3] {
         1 => [57, 199, 255],
         2 => [52, 211, 153],
         3 => [242, 112, 92],
-        5 => [140, 148, 164],
+        5 => [167, 139, 250],
         _ => [167, 139, 250],
     }
 }
@@ -1082,7 +1082,7 @@ fn remind_verb(icon: u8) -> &'static str {
         1 => "喝水",
         2 => "让眼睛歇会儿",
         3 => "吃药",
-        _ => "伸展一一",
+        _ => "伸展一下",
     }
 }
 
@@ -1526,6 +1526,10 @@ struct IslandApp {
     remind_dbg_hover: Option<u64>,
     /// 待处理提醒队列（仅存 id）
     remind_queue: Vec<u64>,
+    remind_mlist_sig: u64,
+    remind_mlist_anim: f32,
+    remind_closing: bool,
+    remind_mlist_mode: bool,
 }
 
 impl IslandApp {
@@ -1825,7 +1829,7 @@ let (r, cov, settled) = if light {
     remind_glow18_blue: None,
     remind_glow18_amber: None,
     remind_glow18_mint: None,
-    remind_glow_phases: vec![None; 33],
+    remind_glow_phases: vec![None; 44],
             remind_tp_open: None,
             remind_tp_hour: 9,
             remind_tp_min: 0,
@@ -1835,6 +1839,10 @@ let (r, cov, settled) = if light {
             remind_tp_ms_t: 0.0,
             remind_dbg_hover: None,
             remind_queue: Vec::new(),
+            remind_mlist_sig: 0,
+            remind_mlist_anim: 1.0,
+            remind_closing: false,
+            remind_mlist_mode: false,
         };
         if let Ok(v) = std::env::var("WINISLE_CITY_SEARCH") {
             app.show_settings = true;
@@ -1867,6 +1875,34 @@ if let Ok(v) = std::env::var("WINISLE_REMIND_FIRE") {
                     app.remind_alert = Some(r.id);
                     app.remind_alert_at = Some(Instant::now());
                 }
+            }
+        }
+        if std::env::var_os("WINISLE_REMIND_MULTI").is_some() {
+            let ids: Vec<u64> = app.reminders.iter().take(4).map(|r| r.id).collect();
+            app.remind_queue = ids.clone();
+            if let Some(f) = ids.first() {
+                app.remind_alert = Some(*f);
+                app.remind_alert_at = Some(Instant::now());
+            }
+        }
+        // debug: 列表粘滞（仅剩 1 条但仍按列表渲染）
+        if std::env::var_os("WINISLE_MLIST_ONE").is_some() {
+            if let Some(r0) = app.reminders.iter().find(|r| r.icon <= 4).map(|r| r.id) {
+                app.remind_queue = vec![r0];
+                app.remind_alert = Some(r0);
+                app.remind_alert_at = Some(Instant::now());
+                app.remind_mlist_mode = true;
+            }
+        }
+        // debug: 进行中的淡出（队列已空、closing）
+        if std::env::var_os("WINISLE_MLIST_CLOSE").is_some() {
+            if let Some(r0) = app.reminders.iter().find(|r| r.icon <= 4).map(|r| r.id) {
+                app.remind_queue.clear();
+                app.remind_alert = Some(r0);
+                app.remind_alert_at = None;
+                app.remind_closing = true;
+                app.remind_mlist_mode = true;
+                app.remind_alert_anim = 0.55;
             }
         }
         // 
@@ -3697,8 +3733,13 @@ if self.music_motion {
 
     fn draw_water_reflection(&mut self, painter: &egui::Painter, rect: egui::Rect, fill_rect: egui::Rect, br: f32, accent: egui::Color32, a: u8, t: f64) {
         if rect.width() < 30.0 || rect.height() < 18.0 || a == 0 {
+            self.wave_active = false;
             return;
         }
+        // 水波频谱是持续动画：空闲时也有由 tt 驱动的 beat/shape 波形，
+        // 不能按静止内容降到 5fps。这里由模块自身声明“需要 60fps 刷新”，
+        // 中央调度据此保持 target_ms=16ms。
+        self.wave_active = true;
         let zero_r = egui::CornerRadius { nw: 0, ne: 0, sw: 0, se: 0 };
         // 
 let over = 4.0f32;
@@ -3757,6 +3798,9 @@ let horizon = rect.top() + rect.height() * 0.60;
         let bw = (((x1 - x0) - gap * (n as f32 - 1.0)) / n as f32).max(1.0);
 
         let playing = self.is_playing();
+        // 每帧只取一次音频数据；不要在逐根柱子的循环里重复调用（每次都会复制 64 个频段）。
+        let bands_now = if playing { Some(crate::audio_meter::bands()) } else { None };
+        let kick_frame = if playing { crate::audio_meter::kick() } else { 0.0 };
         let tt = t as f32;
         // water-reflection-test.html 
         let dt = painter.ctx().input(|i| i.stable_dt).clamp(0.001, 0.05);
@@ -3772,9 +3816,7 @@ let want_onset = if playing { 1.0 } else { 0.0 };
         self.wave_onset += (want_onset - self.wave_onset) * ease_onset;
         self.wave_onset = self.wave_onset.clamp(0.0, 1.0);
         let onset = self.wave_onset;
-        //   /  / 60fps        // 5fps
-        self.wave_active = (self.wave_mix > 0.004 && self.wave_mix < 0.996)
-            || (self.wave_onset > 0.01 && self.wave_onset < 0.999);
+        // 频谱在绘制期间始终是动态模块，刷新需求已在函数入口声明，不再只按过渡期判断。
         // [0,1)/
 let hash01 = |mut x: u32| -> f32 {
             x ^= x >> 16;
@@ -3843,6 +3885,9 @@ let hsl = |h: f32, s: f32, l: f32, alpha: u8| -> egui::Color32 {
             clip.add(egui::Shape::mesh(m));
         }
 
+        // 把所有柱体的渐变和倒影分别合进两个 mesh，避免每帧提交上千个独立矩形（GPU/驱动提交开销很大）。
+        let mut bars_mesh = egui::Mesh::default();
+        let mut refl_mesh = egui::Mesh::default();
         for i in 0..n {
             let f = i as f32 / (n as f32 - 1.0).max(1.0);
             let d = ((f - 0.5).abs() * 2.0).clamp(0.0, 1.0);
@@ -3863,7 +3908,7 @@ let shape = 0.12 * (f * std::f32::consts::TAU * 1.0 + tt * 0.9).sin()
             let play_v = if playing {
                 // 
                 // /
-                let bands_now = crate::audio_meter::bands();
+                let bands_now = bands_now.as_ref().expect("playing 时已取频段");
                 let bpos = f * (crate::audio_meter::NBANDS - 1) as f32;
                 let bi = bpos.floor() as usize;
                 let bf = bpos - bi as f32;
@@ -3878,7 +3923,7 @@ let idle_n = ((idle_target - 0.30) / 0.50).clamp(0.0, 1.0);
                 let mix = 0.22 * idle_n + 0.78 * bandv;
                 let drive = 0.14 + 1.10 * mix; // "静音".14"，重鼓≈1.24"
                 // 
-let kick = crate::audio_meter::kick();
+let kick = kick_frame;
                 // 鼓点整体抬升：不再只靠两侧碗形把低频放大，而是让整排柱子随底鼓一起弹起；
                 // 用 bandv 调制，保留各频段强弱差异，避免整排变成一条平坦的横线。
                 let punch = kick.powf(0.60);
@@ -3920,12 +3965,12 @@ let prev_disp = self.wave_disp[si];
             let base = hsl(hue, 0.92, 0.62, 255);
             let top_c = hsl(hue, 0.96, 0.78, (a as f32 * 0.98) as u8);
             let bot_c = hsl(hue, 0.90, 0.52, (a as f32 * 0.26) as u8);
-            grad_rect(
-                &clip,
-                egui::Rect::from_min_max(egui::pos2(bx, horizon - hgt), egui::pos2(bx + bw, horizon)),
-                top_c,
-                bot_c,
-            );
+            let bi0 = bars_mesh.vertices.len() as u32;
+            bars_mesh.vertices.push(egui::epaint::Vertex { pos: egui::pos2(bx, horizon - hgt), uv, color: top_c });
+            bars_mesh.vertices.push(egui::epaint::Vertex { pos: egui::pos2(bx + bw, horizon - hgt), uv, color: top_c });
+            bars_mesh.vertices.push(egui::epaint::Vertex { pos: egui::pos2(bx + bw, horizon), uv, color: bot_c });
+            bars_mesh.vertices.push(egui::epaint::Vertex { pos: egui::pos2(bx, horizon), uv, color: bot_c });
+            bars_mesh.indices.extend_from_slice(&[bi0, bi0 + 1, bi0 + 2, bi0, bi0 + 2, bi0 + 3]);
             // .5px cap
             //              // + HTML
             let refl_h = (hgt * 0.85).min(refl_depth);
@@ -3941,13 +3986,22 @@ let prev_disp = self.wave_disp[si];
                 let rx0 = bx + off;
                 let rx1 = (rx0 + bw).min(max_x_at((yy + seg_h).min(bottom_y)));
                 if rx1 > rx0 {
-                    clip.rect_filled(
-                        egui::Rect::from_min_size(egui::pos2(rx0, yy), egui::vec2(rx1 - rx0, seg_h)),
-                        zero_r,
-                        rc,
-                    );
+                    let ri = refl_mesh.vertices.len() as u32;
+                    let yb = yy + seg_h;
+                    refl_mesh.vertices.push(egui::epaint::Vertex { pos: egui::pos2(rx0, yy), uv, color: rc });
+                    refl_mesh.vertices.push(egui::epaint::Vertex { pos: egui::pos2(rx1, yy), uv, color: rc });
+                    refl_mesh.vertices.push(egui::epaint::Vertex { pos: egui::pos2(rx1, yb), uv, color: rc });
+                    refl_mesh.vertices.push(egui::epaint::Vertex { pos: egui::pos2(rx0, yb), uv, color: rc });
+                    refl_mesh.indices.extend_from_slice(&[ri, ri + 1, ri + 2, ri, ri + 2, ri + 3]);
                 }
             }
+        }
+
+        if !bars_mesh.vertices.is_empty() {
+            clip.add(egui::Shape::mesh(bars_mesh));
+        }
+        if !refl_mesh.vertices.is_empty() {
+            clip.add(egui::Shape::mesh(refl_mesh));
         }
 
         // HTML 
@@ -5261,7 +5315,7 @@ if self.show_rail_update() {
     }
 
     fn remind_glow_phase_sprite(&mut self, ctx: &egui::Context, icon: u8, idx: usize) -> egui::TextureHandle {
-        let ci: usize = match icon { 0 | 3 => 1, 2 => 2, _ => 0 };
+        let ci: usize = match icon { 5 => 3, 0 | 3 => 1, 2 => 2, _ => 0 };
         let slot = ci * 11 + idx;
         if let Some(t) = &self.remind_glow_phases[slot] {
             return t.clone();
@@ -5300,6 +5354,17 @@ if self.show_rail_update() {
             (8, 2) => include_bytes!("../assets/g8_mint.png") as &[u8],
             (9, 2) => include_bytes!("../assets/g9_mint.png") as &[u8],
             (10, 2) => include_bytes!("../assets/g10_mint.png") as &[u8],
+            (0, 3) => include_bytes!("../assets/g0_violet.png") as &[u8],
+            (1, 3) => include_bytes!("../assets/g1_violet.png") as &[u8],
+            (2, 3) => include_bytes!("../assets/g2_violet.png") as &[u8],
+            (3, 3) => include_bytes!("../assets/g3_violet.png") as &[u8],
+            (4, 3) => include_bytes!("../assets/g4_violet.png") as &[u8],
+            (5, 3) => include_bytes!("../assets/g5_violet.png") as &[u8],
+            (6, 3) => include_bytes!("../assets/g6_violet.png") as &[u8],
+            (7, 3) => include_bytes!("../assets/g7_violet.png") as &[u8],
+            (8, 3) => include_bytes!("../assets/g8_violet.png") as &[u8],
+            (9, 3) => include_bytes!("../assets/g9_violet.png") as &[u8],
+            (10, 3) => include_bytes!("../assets/g10_violet.png") as &[u8],
             _ => include_bytes!("../assets/g0_blue.png") as &[u8],
         };
         let img = image::load_from_memory(bytes).expect("glow phase").to_rgba8();
@@ -5379,8 +5444,13 @@ if self.show_rail_update() {
         let now = now_secs();
         let st = platform::local_time();
         let _ = &st;
+        if self.remind_closing && !self.remind_queue.is_empty() {
+            self.remind_closing = false;
+            self.remind_alert = self.remind_queue.first().copied();
+            self.remind_alert_at = Some(Instant::now());
+        }
         // .16s  + 
-        let aa_target = if self.remind_alert.is_some() { 1.0 } else { 0.0 };
+        let aa_target = if self.remind_alert.is_some() && !self.remind_closing { 1.0 } else { 0.0 };
         if let Some(v) = std::env::var("WINISLE_REMIND_ALERTA").ok().and_then(|s| s.parse::<f32>().ok()) {
             self.remind_alert_anim = v.clamp(0.0, 1.0);
         } else if (self.remind_alert_anim - aa_target).abs() > 0.001 {
@@ -5389,6 +5459,11 @@ if self.show_rail_update() {
             self.remind_alert_anim += (aa_target - self.remind_alert_anim) * k;
             if (self.remind_alert_anim - aa_target).abs() < 0.002 {
                 self.remind_alert_anim = aa_target;
+                if self.remind_closing && self.remind_alert_anim <= 0.01 {
+                    self.remind_alert = None;
+                    self.remind_closing = false;
+                    self.remind_mlist_mode = false;
+                }
             }
             ctx.request_repaint();
         }
@@ -5408,11 +5483,7 @@ if self.show_rail_update() {
         }
         for id in fired {
             if !self.remind_queue.iter().any(|i| *i == id) {
-                if self.remind_queue.len() < 3 {
-                    self.remind_queue.push(id);
-                } else if let Some(r) = self.reminders.iter_mut().find(|r| r.id == id) {
-                    r.next_due = now + 60; // "超过同屏 3 张，稍后再来"
-                }
+                self.remind_queue.push(id);
             }
         }
         if self.remind_alert.is_none() {
@@ -5438,12 +5509,17 @@ if self.show_rail_update() {
     }
 
     fn sync_bud_primary(&mut self) {
-        self.remind_alert = self.remind_queue.first().copied();
-        self.remind_alert_at = if self.remind_alert.is_some() {
-            Some(Instant::now())
+        if let Some(first) = self.remind_queue.first().copied() {
+            self.remind_closing = false;
+            self.remind_alert = Some(first);
+            self.remind_alert_at = Some(Instant::now());
+        } else if self.remind_alert.is_some() {
+            // 队列已清空：保留当前 id 让叠层做淡出过渡，动画结束后再真正清除
+            self.remind_closing = true;
+            self.remind_alert_at = None;
         } else {
-            None
-        };
+            self.remind_alert_at = None;
+        }
     }
 
     fn snooze_reminder(&mut self, id: u64, secs: i64) {
@@ -6251,9 +6327,106 @@ for i in 0..min_count {
         }
         let ease = aa * aa * (3.0 - 2.0 * aa);
         let fade = |c: egui::Color32| egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), ((c.a() as f32) * aa) as u8);
+        // ---------- 多条提醒：列表逐条处理（同屏 3 条，处理后剩余上移渐显） ----------
+        {
+            let mut ids: Vec<u64> = self.remind_queue.clone();
+            if ids.is_empty() {
+                if let Some(a) = self.remind_alert { ids.push(a); }
+            }
+            ids.retain(|i| self.reminders.iter().any(|r| r.id == *i));
+            if ids.len() > 1 {
+                self.remind_mlist_mode = true;
+            }
+            if self.remind_mlist_mode && !ids.is_empty() {
+                let n_total = ids.len();
+                let vis: Vec<u64> = ids.iter().take(3).copied().collect();
+                let sig = (n_total as u64).wrapping_mul(1000003) ^ vis.first().copied().unwrap_or(0);
+                let dt = ui.input(|i| i.stable_dt).clamp(0.001, 0.1);
+                if sig != self.remind_mlist_sig {
+                    self.remind_mlist_sig = sig;
+                    self.remind_mlist_anim = 0.0;
+                } else {
+                    self.remind_mlist_anim = (self.remind_mlist_anim + dt / 0.22).min(1.0);
+                }
+                let le = self.remind_mlist_anim;
+                let le_ease = le * le * (3.0 - 2.0 * le);
+                let ra = aa * (0.22 + 0.78 * le_ease);
+                let rfade = |c: egui::Color32| egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), ((c.a() as f32) * ra) as u8);
+                // 遮罩（跟随内容区右侧圆角）
+                let rr = self.cfg.radius.min(content.height() * 0.5).min(content.width() * 0.5);
+                let cr = self.cfg.position.corner_radius(rr);
+                painter.rect_filled(
+                    content,
+                    egui::CornerRadius { nw: 0, ne: cr.ne, sw: 0, se: cr.se },
+                    egui::Color32::from_rgba_unmultiplied(12, 14, 18, (176.0 * aa) as u8),
+                );
+                let list_w = (content.width() - 36.0).min(392.0);
+                let row_h = 62.0;
+                let gap = 8.0;
+                let n = vis.len() as f32;
+                let total_h = n * row_h + (n - 1.0) * gap;
+                let hdr_y = content.center().y - total_h * 0.5 - 24.0;
+                painter.text(
+                    egui::pos2(content.center().x, hdr_y),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{} 条提醒待处理 · 逐条处理", n_total),
+                    bold_font(12.0),
+                    fade(egui::Color32::from_rgb(233, 236, 242)),
+                );
+                let left = content.center().x - list_w * 0.5;
+                let top0 = content.center().y - total_h * 0.5 + 6.0 + (1.0 - le_ease) * row_h;
+                let ptr = ui.ctx().pointer_interact_pos();
+                let clicked = ui.input(|i| i.pointer.primary_clicked() || i.pointer.primary_pressed());
+                let mut action: Option<(u64, bool)> = None; // (id, is_done)
+                for (k, rid) in vis.iter().copied().enumerate() {
+                    let rem = match self.reminders.iter().find(|r| r.id == rid) { Some(r) => r.clone(), None => continue };
+                    let icon = rem.icon;
+                    let col = remind_color(icon);
+                    let row = egui::Rect::from_min_size(
+                        egui::pos2(left, top0 + k as f32 * (row_h + gap)),
+                        egui::vec2(list_w, row_h),
+                    );
+                    painter.rect_filled(row, 14.0, rfade(egui::Color32::from_rgb(30, 33, 40)));
+                    painter.rect_stroke(row, 14.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], (60.0 * ra) as u8)), egui::StrokeKind::Inside);
+                    let ic = egui::pos2(row.left() + 28.0, row.center().y);
+                    painter.circle_filled(ic, 17.0, egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], (52.0 * ra) as u8));
+                    Self::draw_remind_icon(painter, icon, ic, 19.0, rfade(egui::Color32::from_rgb(col[0], col[1], col[2])), 1.8);
+                    let title = if icon == 5 { rem.name.clone() } else { remind_tip(icon).to_string() };
+                    let sub = if icon == 5 { format!("自定义 · 每{}分钟", rem.interval_min) } else { remind_desc(&rem) };
+                    let tx = row.left() + 52.0;
+                    painter.text(egui::pos2(tx, row.center().y - 9.0), egui::Align2::LEFT_CENTER, &title, bold_font(13.0), rfade(egui::Color32::from_rgb(233, 236, 242)));
+                    painter.text(egui::pos2(tx, row.center().y + 10.0), egui::Align2::LEFT_CENTER, &sub, egui::FontId::proportional(10.0), rfade(egui::Color32::from_rgb(150, 158, 175)));
+                    let done = egui::Rect::from_min_size(egui::pos2(row.right() - 16.0 - 46.0, row.center().y - 12.0), egui::vec2(46.0, 24.0));
+                    let snooze = egui::Rect::from_min_size(egui::pos2(done.left() - 8.0 - 54.0, row.center().y - 12.0), egui::vec2(54.0, 24.0));
+                    painter.rect_stroke(snooze, 8.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, (40.0 * ra) as u8)), egui::StrokeKind::Inside);
+                    painter.text(snooze.center(), egui::Align2::CENTER_CENTER, "稍后", bold_font(10.5), rfade(egui::Color32::from_rgb(233, 236, 242)));
+                    painter.rect_filled(done, 8.0, egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], (255.0 * ra) as u8));
+                    painter.text(done.center(), egui::Align2::CENTER_CENTER, "完成", bold_font(10.5), rfade(egui::Color32::from_rgb(16, 20, 24)));
+                    if let Some(p) = ptr {
+                        if snooze.contains(p) || done.contains(p) {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if clicked && !self.remind_closing {
+                            if snooze.contains(p) { action = Some((rid, false)); }
+                            else if done.contains(p) { action = Some((rid, true)); }
+                        }
+                    }
+                }
+                if let Some((rid, is_done)) = action {
+                    if is_done { self.complete_reminder(rid); } else { self.snooze_reminder(rid, 600); }
+                    self.remind_mlist_sig = 0; // 下一帧触发上移渐显
+                    self.remind_mlist_anim = 0.0;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                let wait = if le < 1.0 { 16 } else { 33 };
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(wait));
+                return;
+            }
+        }
         let icon = rem.icon;
-        let tip = remind_tip(icon).to_string();
-        let desc = remind_desc(&rem);
+        let tip = if icon == 5 { rem.name.clone() } else { remind_tip(icon).to_string() };
+        let desc = if icon == 5 { format!("自定义提醒 · 每{}分钟", rem.interval_min) } else { remind_desc(&rem) };
         let col = remind_color(icon);
         let cc = egui::Color32::from_rgb(col[0], col[1], col[2]);
         let ink = fade(egui::Color32::from_rgb(233, 236, 242));
@@ -6301,7 +6474,7 @@ for i in 0..min_count {
         painter.text(
             egui::pos2(card.center().x, card.bottom() - 10.0),
             egui::Align2::CENTER_CENTER,
-            "持续提醒一· 完成后收赏",
+            "持续提醒中 · 完成后收起",
             egui::FontId::proportional(9.5),
             muted,
         );
@@ -6313,11 +6486,11 @@ for i in 0..min_count {
         if over_snooze || over_done {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        if clicked && over_snooze {
+        if clicked && !self.remind_closing && over_snooze {
             self.snooze_alert(600);
             return;
         }
-        if clicked && over_done {
+        if clicked && !self.remind_closing && over_done {
             self.complete_alert();
             return;
         }
