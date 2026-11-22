@@ -167,6 +167,7 @@ unsafe fn bands_loop() {
     let mut smooth = [0f32; NBANDS];
     let mut avg = [0.02f32; NBANDS];
     let mut kick_env = 0f32;
+    let mut last_lowmax = 0f32;
     let mut mono: Vec<f32> = Vec::with_capacity(NFFT * 4);
 
     'reconnect: loop {
@@ -337,11 +338,15 @@ unsafe fn bands_loop() {
                     }
                     BANDS[b].store(val.to_bits(), Ordering::Relaxed);
                 }
-                // 低频鼓点包络：快起、较快落（时间常数化），让柱子随底鼓明显起跳
-                let k_up = 1.0 - (-dt / 0.012_f32).exp();
-                let k_dn = 1.0 - (-dt / 0.07_f32).exp();
-                let ka = if lowmax > kick_env { k_up } else { k_dn };
-                kick_env += (lowmax - kick_env) * ka;
+                // 低频鼓点包络：只看“上升沿/起振量”，而不是低频的绝对能量。
+                // 持续的低音铺底（bass line）不会一直被当成鼓点；每次底鼓把低频推高时才触发一次快起快落。
+                let rise = (lowmax - last_lowmax).max(0.0);
+                last_lowmax = lowmax;
+                let kick_target = (rise * 6.0).clamp(0.0, 1.0);
+                let k_up = 1.0 - (-dt / 0.006_f32).exp();
+                let k_dn = 1.0 - (-dt / 0.08_f32).exp();
+                let ka = if kick_target > kick_env { k_up } else { k_dn };
+                kick_env += (kick_target - kick_env) * ka;
                 KICK.store(kick_env.to_bits(), Ordering::Relaxed);
             }
 

@@ -29,8 +29,8 @@ const W_COLLAPSED_MUSIC: f32 = 356.0;
 const W_COLLAPSED_FACE: f32 = 72.0;
 ///  draw_robot_face expr 
 const FACES: [&str; 14] = [
-    "平静", "开心", "难过", "生气", "哭泣", "爱心", "害羞",
-    "思", "眨眼", "", "亲亲", "自信", "困", "困惑",
+    "平静", "开心", "难过", "生气", "哭泣", "爱心眼", "害羞",
+    "思考", "眨眼", "酷", "亲亲", "自信", "困倦", "困惑",
 ];
 /// /FACES 41213
 const FACE_REMOVED: [bool; 14] = [
@@ -3846,8 +3846,8 @@ let hsl = |h: f32, s: f32, l: f32, alpha: u8| -> egui::Color32 {
         for i in 0..n {
             let f = i as f32 / (n as f32 - 1.0).max(1.0);
             let d = ((f - 0.5).abs() * 2.0).clamp(0.0, 1.0);
-            // d^1.7  smoothstep            // 
-let bowl = 0.18 + 1.06 * d.powf(1.7);
+            // 中间地板从 0.18 抬高到 0.26，避免整排柱子中段贴地、鼓点只有两端动。
+let bowl = 0.26 + 0.98 * d.powf(1.7);
             let beat = ((tt * std::f32::consts::PI * (128.0 / 60.0) / 2.0).sin() * 0.5 + 0.5).powi(4);
             // +  + 
 let shape = 0.12 * (f * std::f32::consts::TAU * 1.0 + tt * 0.9).sin()
@@ -3879,9 +3879,13 @@ let idle_n = ((idle_target - 0.30) / 0.50).clamp(0.0, 1.0);
                 let drive = 0.14 + 1.10 * mix; // "静音".14"，重鼓≈1.24"
                 // 
 let kick = crate::audio_meter::kick();
-                let vr = bowl * drive * flick * (0.55 + 0.90 * kick);
+                // 鼓点整体抬升：不再只靠两侧碗形把低频放大，而是让整排柱子随底鼓一起弹起；
+                // 用 bandv 调制，保留各频段强弱差异，避免整排变成一条平坦的横线。
+                let punch = kick.powf(0.60);
+                let lift = punch * (0.55 + 0.55 * bandv) * (0.62 + 0.38 * bowl);
+                let vr = bowl * drive * flick * (0.60 + 0.55 * kick) + lift;
                 let knee = 0.70f32;
-                let ceil = 0.96f32;
+                let ceil = 0.99f32;
                 let target = if vr <= knee {
                     vr
                 } else {
@@ -3890,6 +3894,9 @@ let kick = crate::audio_meter::kick();
                 // 
                 //                  //                 // onset
                 let target = target.max(idle_v);
+                // 鼓点命中时给整排一个共同的地板抬升（用 punch 调制），避免只有低频段在跳、
+                // 中高段仍像静止，整体看起来不够“炸”。
+                let target = target.max((idle_v + punch * 0.65).min(0.99));
                 let target = idle_v + (target - idle_v) * onset;
                 self.wave_play[si] = target;
                 target
@@ -3900,7 +3907,7 @@ let kick = crate::audio_meter::kick();
 let vv = idle_v * (1.0 - wave_mix) + play_v * wave_mix;
             // 
 let prev_disp = self.wave_disp[si];
-            let tau_disp = if vv > prev_disp { 0.045_f32 } else { 0.16_f32 };
+            let tau_disp = if vv > prev_disp { 0.030_f32 } else { 0.17_f32 };
             let ease_disp = 1.0 - (-dt / tau_disp).exp();
             let disp = prev_disp + (vv - prev_disp) * ease_disp;
             self.wave_disp[si] = disp;
