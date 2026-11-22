@@ -5677,7 +5677,7 @@ if self.show_rail_update() {
                 let irect = egui::Rect::from_center_size(egui::pos2(x0 + 15.0, *y + row_h * 0.5), egui::vec2(24.0, 24.0));
                 cp.rect_filled(irect, 8.0, egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], (a as f32 * 0.16) as u8));
                 Self::draw_remind_icon(cp, r.icon, irect.center(), 16.0, cc, 1.4);
-                let name_dy = -7.0;
+                let name_dy = 0.0;
                 cp.text(egui::pos2(x0 + 34.0, *y + row_h * 0.5 + name_dy), egui::Align2::LEFT_CENTER, &r.name, bold_font(12.5), ink);
                 // 标签：循环/一次，循环型额外显示「每 N 分钟」
                 {
