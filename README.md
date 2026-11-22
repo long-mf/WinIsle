@@ -46,6 +46,11 @@
 - **自动更新** — 每日检查新版本，后台下载进度，一键安装并自动重启。
 
 <div align="center">
+<img src="docs/img/showcase_modules.png" width="820" alt="WinIsle 五个模块：音乐、待办、提醒、天气、生活">
+<br><sub>一条小岛，五个模块：音乐 · 待办 · 提醒 · 天气 · 生活，随手切换。</sub>
+</div>
+
+<div align="center">
 <img src="docs/img/showcase_life.png" width="760" alt="WinIsle 生活模块：生日倒计时与出差补贴">
 <br><sub>生活模块：生日 · 纪念日 · 出差补贴，一个模块装三件事，都在同一条小岛里。</sub>
 </div>
