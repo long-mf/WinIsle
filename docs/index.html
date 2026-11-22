@@ -113,6 +113,12 @@
   .dl-note{margin-top:16px;font-size:12.8px;color:var(--muted2)}
   .dl-note a{color:var(--teal)}
 
+  /* roadmap */
+  .roadmap{display:flex;align-items:center;gap:26px;flex-wrap:wrap;background:linear-gradient(120deg,rgba(18,165,148,.10),rgba(124,108,240,.08));border:1px solid var(--line2);border-radius:22px;padding:30px 34px}
+  .roadmap .txt{flex:1;min-width:260px}
+  .roadmap h2{font-size:24px;margin-top:8px}
+  .roadmap p{color:var(--muted);margin-top:9px;font-size:14.2px;max-width:40em}
+
   /* changelog */
   .cl{margin-top:6px}
   .cl-item{display:grid;grid-template-columns:158px 1fr;gap:26px;padding:26px 0;border-top:1px solid var(--line)}
@@ -187,8 +193,7 @@
     </div>
     <div class="hero-shot">
       <div class="glow"></div>
-      <div class="frame"><img src="img/island_music.png" alt="WinIsle 黑胶音乐展开界面"></div>
-      <img class="float-icon" src="img/logo.svg" alt="WinIsle 图标">
+      <div class="frame" style="padding:0;background:transparent;border:0;box-shadow:0 34px 80px rgba(0,0,0,.55)"><img src="img/showcase_music.png" alt="WinIsle 黑胶音乐岛：黑胶唱片、逐字歌词与实时水波频谱"></div>
     </div>
   </div>
 </header>
@@ -308,15 +313,16 @@
     </div>
     <div class="cl">
       <div class="cl-item">
-        <div class="cl-ver"><div class="v">v0.4.0<span class="tag">开发中</span></div><div class="date">2026-11-22</div></div>
+        <div class="cl-ver"><div class="v">v1.0.0<span class="tag">正式版</span></div><div class="date">2026-11-22</div></div>
         <div class="cl-body"><ul>
+          <li><b>首个 1.0 正式版</b>：功能与稳定性打磨完成，后续迭代从此版本开始。</li>
           <li><b>生活模块</b>：全新第 5 个模块，生日倒计时（公历 / 农历双历法、生肖星座）、纪念日（每年 / 一次性）与出差补贴（按天分档、总补贴与至今补贴）一个模块装三件事。</li>
           <li><b>待办与提醒</b>：岛内待办清单与定时提醒完整可用，支持勾选、归档、重复间隔与生效时段。</li>
           <li><b>界面打磨</b>：左侧导航改为五项并统一图标与文字中线；日期选择器支持年份快速筛选；补贴区间可按天级联维护并实时校验。</li>
         </ul></div>
       </div>
       <div class="cl-item">
-        <div class="cl-ver"><div class="v">v0.3.0<span class="tag">最新</span></div><div class="date">2026-11-18</div></div>
+        <div class="cl-ver"><div class="v">v0.3.0</div><div class="date">2026-11-18</div></div>
         <div class="cl-body"><ul>
           <li><b>全新品牌</b>：更名 WinIsle，启用「岛上七气泡」全新图标与官网。</li>
           <li><b>自动更新</b>：真实检查状态、每日节流、下载进度条、一键安装并重启，GitHub API 兜底。</li>
@@ -340,6 +346,19 @@
           <li><b>首个公开版本</b>：黑胶音乐岛、逐字渐绿歌词、天气速览、毛玻璃收放动画与系统托盘。</li>
         </ul></div>
       </div>
+    </div>
+  </div>
+</section>
+
+<section id="roadmap" style="padding-top:0">
+  <div class="wrap">
+    <div class="roadmap">
+      <div class="txt">
+        <div class="kicker">Roadmap</div>
+        <h2>更多功能，敬请期待</h2>
+        <p>WinIsle 仍在持续打磨与迭代，更多贴心功能正在路上。欢迎在 GitHub Issues 提出建议或反馈问题，我们会认真阅读每一条反馈。</p>
+      </div>
+      <a class="btn btn-ghost" href="https://github.com/long-mf/WinIsle/issues" target="_blank" rel="noopener">提出建议 / 反馈问题</a>
     </div>
   </div>
 </section>

@@ -1,6 +1,6 @@
 [package]
 name = "winisle"
-version = "0.3.0"
+version = "1.0.0"
 edition = "2021"
 description = "WinIsle — 原创开源的 Windows 灵动岛桌面音乐伴侣"
 license = "MIT"

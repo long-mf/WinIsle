@@ -127,6 +127,10 @@ scripts/         构建 / 打包 / 工具脚本
 
 完整的依赖与素材授权清单见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。分发或二次开发时请一并保留上述版权与许可声明。
 
+## 更多功能，敬请期待
+
+WinIsle 仍在持续迭代中，更多功能正在路上。如果你有想要的功能，或在使用中遇到问题，欢迎到 [GitHub Issues](https://github.com/long-mf/WinIsle/issues) 提出建议与反馈，我们会认真对待每一条。
+
 ## 链接
 
 - 🌐 官网：<https://long-mf.github.io/WinIsle/>
