@@ -4774,30 +4774,36 @@ let dur = self.duration_est();
         //  () / 
 let btn_y = rect.top() + CONTENT_PAD_T + 108.0 - 10.0;
         let mut clicked: Option<&str> = None;
-        let prev_c = egui::pos2(tx + 12.0, btn_y);
-        let rprev = egui::Rect::from_center_size(prev_c, egui::vec2(22.0, 22.0));
+        //  上一首左缘与进度条左缘对齐，图标放大后仍保持这一基准
+        let prev_size = 15.0;
+        let prev_c = egui::pos2(tx + 9.8, btn_y);
+        let rprev = egui::Rect::from_center_size(prev_c, egui::vec2(26.0, 26.0));
         self.ctrl_hit.push(rprev);
         let resp_prev = ui.interact(rprev, ui.id().with("mctrl_prev"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        painter.circle_filled(prev_c, 11.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 18));
-        draw_media_glyph(painter, prev_c, 11.0, 0, ink); // Previous
+        draw_media_glyph(painter, prev_c, prev_size, 0, ink); // Previous
         if resp_prev.clicked() {
             clicked = Some("prev");
         }
         let play_c = egui::pos2(tx + 58.0, btn_y);
-        let rplay = egui::Rect::from_center_size(play_c, egui::vec2(36.0, 36.0));
+        let rplay = egui::Rect::from_center_size(play_c, egui::vec2(58.0, 36.0));
         self.ctrl_hit.push(rplay);
         let resp_play = ui.interact(rplay, ui.id().with("mctrl_play"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        painter.circle_filled(play_c, 17.0, green);
-        draw_media_glyph(painter, play_c, 13.0, if self.is_playing() { 2 } else { 1 }, ink); // Pause / Play
+        let play_bg = egui::Color32::from_rgba_unmultiplied(35, 88, 72, a);
+        painter.rect_filled(
+            egui::Rect::from_center_size(play_c, egui::vec2(58.0, 34.0)),
+            egui::CornerRadius::same(17),
+            play_bg,
+        );
+        draw_media_glyph(painter, play_c, 17.0, if self.is_playing() { 2 } else { 1 }, ink); // Pause / Play
         if resp_play.clicked() {
             clicked = Some("play");
         }
+        let next_size = 15.0;
         let next_c = egui::pos2(tx + 104.0, btn_y);
-        let rnext = egui::Rect::from_center_size(next_c, egui::vec2(22.0, 22.0));
+        let rnext = egui::Rect::from_center_size(next_c, egui::vec2(26.0, 26.0));
         self.ctrl_hit.push(rnext);
         let resp_next = ui.interact(rnext, ui.id().with("mctrl_next"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        painter.circle_filled(next_c, 11.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 18));
-        draw_media_glyph(painter, next_c, 11.0, 3, ink); // Next
+        draw_media_glyph(painter, next_c, next_size, 3, ink); // Next
         if resp_next.clicked() {
             clicked = Some("next");
         }
