@@ -3216,8 +3216,16 @@ ctx.request_repaint();
         }
         // Win32 SetWindowPos  winit
         // OuterPosition 4px        // 
-let target_x = (full.min.x * ppp).round() as i32;
+let mut target_x = (full.min.x * ppp).round() as i32;
         let target_y = (full.min.y * ppp).round() as i32;
+        // 系统窗口最外沿仍有约 1px 边框像素；侧边吸附时它正好压在屏幕边缘，
+        // 看起来像贴边的一条细亮“缝”。把窗口朝屏幕外多挪 1px，让这 1px 落到屏幕外，
+        // 岛体内容才真正贴齐屏幕边（右侧同理反向）。
+        match self.cfg.position {
+            DockPosition::LeftCenter => target_x -= 1,
+            DockPosition::RightCenter => target_x += 1,
+            _ => {}
+        }
         if self.hwnd != 0 {
             let (wl, wt, _wr, _wb) = platform::window_rect(self.hwnd);
             if wl != target_x || wt != target_y {
