@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>WinIsle · 待办模块原型 v3</title>
+<style>
+  :root{
+    --ink:#1b1a16; --line:#e7e0d2; --paper:#f1ece1; --card:#fffdf7;
+    --mint:#0f8378; --mint2:#34d399;
+    /* app tokens */
+    --t-ink:#E9ECF2; --t-muted:#969EAF; --t-muted2:#6B7180; --t-accent:#34D399;
+    --t-coral:#F2705C; --t-amber:#E6B23C;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1200px;margin:0 auto;padding:52px 40px 66px}
+
+  .eyebrow{font-size:12px;letter-spacing:.2em;font-weight:800;color:var(--mint);text-transform:uppercase;display:flex;align-items:center;gap:9px}
+  .eyebrow::before{content:"";width:8px;height:8px;border-radius:50%;background:#12b39b;box-shadow:0 0 0 4px rgba(18,179,155,.16)}
+  h1{font-size:28px;margin:14px 0 8px;font-weight:800;letter-spacing:-.01em}
+  h1 em{font-style:normal;color:var(--mint)}
+  .sub{font-size:14px;color:#4b4a44;line-height:1.75;margin:0;max-width:840px}
+  .sub b{color:#1b1a16}
+
+  .sec{margin-top:40px}
+  .sechead{display:flex;align-items:baseline;gap:12px;margin:0 0 16px}
+  .sechead .n{font-size:12px;font-weight:800;color:#fff;background:var(--mint);width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;transform:translateY(2px)}
+  .sechead .t{font-size:16px;font-weight:800}
+  .sechead .d{font-size:12.5px;color:#8a8577}
+
+  /* ---------- 岛 ---------- */
+  .stage{display:flex;justify-content:center}
+  .island{
+    position:relative; width:520px; height:300px; border-radius:16px;
+    background:linear-gradient(180deg,#21232c 0%,#1a1b21 52%,#16171c 100%);
+    box-shadow:0 30px 60px -26px rgba(10,26,22,.6), 0 1px 0 rgba(255,255,255,.05) inset, 0 0 0 1px rgba(255,255,255,.055);
+    overflow:hidden; color:var(--t-ink);
+    font-variant-numeric:tabular-nums;
+  }
+  /* 左栏 */
+  .rail{position:absolute;left:0;top:0;bottom:0;width:66px;background:#15161b;
+    border-radius:16px 0 0 16px;box-shadow:1px 0 0 rgba(255,255,255,.045) inset;z-index:3}
+  .rail .time{position:absolute;top:8px;left:0;right:0;text-align:center;font-size:17px;font-weight:700;color:var(--t-ink);letter-spacing:.01em}
+  .nav{position:absolute;top:34px;left:9px;right:9px;display:flex;flex-direction:column;gap:8px}
+  .nav .item{height:40px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:3px;color:var(--t-muted);transition:none}
+  .nav .item svg{display:block}
+  .nav .item .lab{font-size:10.5px;font-weight:600;line-height:1}
+  .nav .item.on{background:rgba(52,211,153,.14);color:var(--t-accent)}
+  .rail .set{position:absolute;bottom:8px;left:9px;right:9px;height:40px;border-radius:10px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--t-muted)}
+  .rail .set .lab{font-size:10.5px;font-weight:600;line-height:1}
+
+  /* 内容区 */
+  .content{position:absolute;left:66px;top:0;right:0;bottom:0;padding:16px 16px 14px;display:flex;flex-direction:column}
+  .hd{display:flex;align-items:center;justify-content:space-between;height:26px;flex:0 0 auto}
+  .hd .title{font-size:17px;font-weight:800;letter-spacing:.01em}
+  .hd .hleft{display:flex;align-items:center;gap:8px}
+  .hd .back{display:flex;color:var(--t-muted)}
+  .hd .right{display:flex;align-items:center;gap:10px}
+  .hd .ring{display:flex}
+  .hd .pillnum{font-size:11.5px;font-weight:700;color:var(--t-muted);background:rgba(255,255,255,.06);border-radius:999px;padding:3px 10px;min-width:24px;text-align:center;line-height:1.2}
+  .hd .arch-entry{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--t-muted);
+    background:rgba(255,255,255,.05);box-shadow:0 0 0 1px rgba(255,255,255,.07) inset;border-radius:9px;padding:4px 8px;line-height:1}
+  .hd .arch-entry .ebadge{font-size:9px;font-weight:800;color:var(--t-muted2);background:rgba(255,255,255,.08);border-radius:999px;padding:1px 5px;line-height:1.4;min-width:14px;text-align:center}
+
+  /* 两态 tab + 数目角标 */
+  .tabs{display:flex;gap:6px;margin-top:9px;flex:0 0 auto}
+  .tab{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--t-muted2);padding:5px 11px;border-radius:999px;line-height:1}
+  .tab.on{color:var(--t-accent);background:rgba(52,211,153,.14);box-shadow:0 0 0 1px rgba(52,211,153,.26) inset}
+  .tab .cnt{font-size:9.5px;font-weight:800;line-height:1;min-width:15px;text-align:center;padding:2px 5px;border-radius:999px;background:rgba(255,255,255,.08);color:var(--t-muted)}
+  .tab.on .cnt{background:rgba(52,211,153,.24);color:var(--t-accent)}
+  .tabs{align-items:center;gap:8px}
+  .ddwrap{position:relative}
+  .tab.dd{gap:5px}
+  .tab .chev{display:flex;color:currentColor;opacity:.85}
+  .menu{position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:132px;
+    background:#23252e;border-radius:11px;padding:4px;
+    box-shadow:0 14px 32px -12px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.08) inset}
+  .menu .opt{display:flex;align-items:center;justify-content:space-between;gap:16px;
+    font-size:11.5px;font-weight:700;color:var(--t-muted);padding:7px 9px;border-radius:7px;line-height:1}
+  .menu .opt .oc{font-size:9.5px;font-weight:800;color:var(--t-muted2)}
+  .menu .opt.on{color:var(--t-accent);background:rgba(52,211,153,.14)}
+  .menu .opt.on .oc{color:var(--t-accent)}
+
+  .list{flex:1 1 auto;margin-top:9px;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  .glabel{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;color:var(--t-muted2);letter-spacing:.03em;height:16px}
+  .glabel .c{font-size:9.5px;color:var(--t-muted2);opacity:.7}
+  .group + .group{margin-top:12px}
+
+  .task{display:flex;align-items:center;height:26px;gap:9px}
+  .task .cb{display:flex;flex:0 0 auto}
+  .task .tt{flex:1 1 auto;font-size:12.5px;font-weight:600;color:var(--t-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1}
+  .task.done .tt{color:var(--t-muted2);text-decoration:line-through;text-decoration-color:rgba(107,113,128,.65)}
+  .task .meta{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+  .task .tag{font-size:9.5px;color:var(--t-muted);background:rgba(255,255,255,.06);padding:2px 7px;border-radius:6px;line-height:1}
+  .task .dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto}
+  .task .act{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;color:var(--t-muted);
+    background:rgba(255,255,255,.06);padding:3px 8px;border-radius:7px;line-height:1}
+  .task .act svg{display:block}
+
+  /* 归档行 */
+  .arow{display:flex;align-items:center;height:26px;gap:9px}
+  .arow .ic{display:flex;flex:0 0 auto;color:var(--t-muted2)}
+  .arow .tt{flex:1 1 auto;font-size:12px;font-weight:600;color:var(--t-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1}
+  .arow .restore{flex:0 0 auto;font-size:9.5px;font-weight:700;color:var(--t-muted2);background:rgba(255,255,255,.05);padding:3px 8px;border-radius:7px;line-height:1}
+
+  .addrow{margin-top:7px;flex:0 0 auto;height:28px;border-radius:9px;background:rgba(52,211,153,.08);
+    box-shadow:0 0 0 1px rgba(52,211,153,.16) inset;display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--t-muted2)}
+  .addrow .ph{font-size:11.5px;font-weight:500}
+  .addrow .hint{margin-left:auto;font-size:9.5px;color:var(--t-muted2);opacity:.75}
+
+  /* 卡 */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:22px;
+    box-shadow:0 20px 40px -34px rgba(40,35,20,.55)}
+  .cap{display:flex;align-items:center;gap:9px;margin:0 0 14px}
+  .cap .k{font-size:11px;font-weight:800;color:var(--mint);background:rgba(18,179,155,.12);border:1px solid rgba(18,179,155,.22);padding:3px 9px;border-radius:999px;letter-spacing:.02em}
+  .cap .nm{font-size:13px;font-weight:800}
+  .cap .ds{font-size:11.5px;color:#8a8577;margin-left:auto}
+
+  .variants{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .miniframe{overflow:hidden;margin:0 auto;display:block}
+  .scaled{transform-origin:top left}
+
+  .legend{display:flex;gap:18px;align-items:center;justify-content:center;margin-top:16px;flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:#6b6656;font-weight:600}
+  .legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+  .notes{display:grid;grid-template-columns:1fr 1fr;gap:14px 40px;margin-top:4px}
+  .note{display:flex;gap:12px;align-items:flex-start}
+  .note .b{flex:0 0 auto;width:20px;height:20px;border-radius:6px;background:rgba(18,179,155,.12);color:var(--mint);display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .note .tx{font-size:12.5px;line-height:1.6;color:#4b4a44}
+  .note .tx b{color:#1b1a16;display:block;font-size:13px;margin-bottom:1px}
+  .note .tx b span{font-weight:600;color:#8a8577;font-size:11.5px;margin-left:6px}
+  .foot{margin-top:34px;text-align:center;font-size:11.5px;color:#a19c8e}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">WinIsle · 待办模块原型 v3</div>
+  <h1>让刘海岛<em>记得住每件事</em></h1>
+  <p class="sub">在现有「音乐 / 天气」之外新增第三个模块 <b>待办</b>。顶部只有<b>两个 tab</b>：第一个是待办列表，点开其<b>下拉</b>可在 <b>全部 / 未完成 / 已完成</b> 之间切换（默认「全部」）；第二个是<b>归档</b>。在列表里把任务标记完成，它会立即排到「已完成」队列的<b>第一行</b>。下方为像素级还原的岛内实景与关键状态。</p>
+
+  <!-- ① 主视图 -->
+  <div class="sec">
+    <div class="sechead"><span class="n">1</span><span class="t">主视图 · 全部（默认）</span><span class="d">（520×300 逻辑像素，按 2× 渲染）</span></div>
+    <div class="stage"><div id="hero"></div></div>
+  </div>
+
+  <!-- ② 关键状态 -->
+  <div class="sec">
+    <div class="sechead"><span class="n">2</span><span class="t">关键状态</span><span class="d">下拉切换筛选 / 归档模块</span></div>
+    <div class="variants">
+      <div class="card">
+        <div class="cap"><span class="k">状态 A</span><span class="nm">下拉筛选 · 全部/未完成/已完成</span><span class="ds">第一个 tab 点开下拉切换，默认「全部」</span></div>
+        <div class="miniframe" id="v-drop"></div>
+      </div>
+      <div class="card">
+        <div class="cap"><span class="k">状态 B</span><span class="nm">归档 · 按创建日期</span><span class="ds">第二个 tab · 按建单日期分栏</span></div>
+        <div class="miniframe" id="v-arch"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 设计要点 -->
+  <div class="sec">
+    <div class="sechead"><span class="n">3</span><span class="t">设计与交互要点</span><span class="d">落地时逐条实现</span></div>
+    <div class="card">
+      <div class="notes">
+        <div class="note"><span class="b">1</span><div class="tx"><b>两个 Tab<span>列表 + 归档</span></b>顶部只两个 tab：第一个是待办列表，第二个是归档，不做多余分栏。</div></div>
+        <div class="note"><span class="b">2</span><div class="tx"><b>下拉切换筛选<span>全部/未完成/已完成</span></b>第一个 tab 点开下拉，在三种筛选间切换，默认「全部」，省去并列的三个 tab。</div></div>
+        <div class="note"><span class="b">3</span><div class="tx"><b>全部视图分组<span>未完成 / 已完成</span></b>「全部」下按未完成、已完成两组展示，完成项自动划线，各带数目角标。</div></div>
+        <div class="note"><span class="b">4</span><div class="tx"><b>完成即置顶<span>进已完成队列第一行</span></b>在列表里勾选完成，该条立即排到「已完成」队列的第一行，不用手动拖。</div></div>
+        <div class="note"><span class="b">5</span><div class="tx"><b>极简行<span>勾选 + 标题</span></b>一行只放勾选框和标题，去掉优先级灯与标签，扫读更快更干净。</div></div>
+        <div class="note"><span class="b">6</span><div class="tx"><b>归档动作不变<span>已完成里归档</span></b>已完成每条右侧一个「归档」按钮，一键移入归档 tab，列表即时收缩。</div></div>
+        <div class="note"><span class="b">7</span><div class="tx"><b>归档按创建日期</b>归档 tab 内按任务创建日期分组（11月18日 / 15日 / 12日），每条可「恢复」回列表。</div></div>
+        <div class="note"><span class="b">8</span><div class="tx"><b>快速收集 + 键盘 + 本地</b>底部输入框回车即存；↑↓ 选择、空格勾选、Enter 编辑、Esc 返回；数据存 data/todo.json。</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">WinIsle · 待办模块原型 v3 · 深色岛体 + 薄荷强调色 · 列表(下拉筛选) + 归档 两个 tab · 与音乐 / 天气同一套设计语言</div>
+</div>
+
+<script>
+const C={accent:'#34D399',ink:'#E9ECF2',muted:'#969EAF',muted2:'#6B7180',coral:'#F2705C',amber:'#E6B23C'};
+const prioColor=p=>p===1?C.coral:p===2?C.amber:C.muted2;
+
+function svgIcon(kind,size,color){
+  const s=size||18, w=1.7;
+  const o=`width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"`;
+  if(kind==='music') return `<svg ${o}><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>`;
+  if(kind==='todo')  return `<svg ${o}><circle cx="12" cy="12" r="9"/><path d="M8 12.4l2.7 2.7L16.2 9"/></svg>`;
+  if(kind==='weather')return `<svg ${o}><path d="M7.5 18h8.5a3.6 3.6 0 0 0 .3-7.18A5 5 0 0 0 7.3 9.4 4 4 0 0 0 7.5 18z"/></svg>`;
+  if(kind==='set')   return `<svg ${o}><circle cx="12" cy="12" r="3.1"/><path d="M12 2.6v2.3M12 19.1v2.3M2.6 12h2.3M19.1 12h2.3M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M19.1 4.9l-1.6 1.6M6.5 17.5l-1.6 1.6"/></svg>`;
+  if(kind==='back')  return `<svg ${o}><path d="M15 5.5l-6.5 6.5 6.5 6.5"/></svg>`;
+  if(kind==='box')   return `<svg ${o}><path d="M4 9h16"/><path d="M5 9v8.2A1.8 1.8 0 0 0 6.8 19h10.4A1.8 1.8 0 0 0 19 17.2V9"/><path d="M4 9l1.6-3.4A1.8 1.8 0 0 1 7.2 4.5h9.6a1.8 1.8 0 0 1 1.6.99L20 9"/><path d="M9.6 13h4.8"/></svg>`;
+  return '';
+}
+function cb(done){
+  if(done) return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="#34D399"/><path d="M4.7 8.2l2.15 2.15 4.35-4.6" stroke="#0c2a22" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.6" stroke="#6B7180" stroke-width="1.5"/></svg>`;
+}
+function ring(done,total){
+  const r=8, circ=2*Math.PI*r, frac=total>0?Math.min(done/total,1):0, dash=circ*frac;
+  return `<svg width="18" height="18" viewBox="0 0 20 20">
+    <circle cx="10" cy="10" r="${r}" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="2.4"/>
+    <circle cx="10" cy="10" r="${r}" fill="none" stroke="#34D399" stroke-width="2.4" stroke-linecap="round"
+      stroke-dasharray="${dash.toFixed(2)} ${circ.toFixed(2)}" transform="rotate(-90 10 10)"/>
+  </svg>`;
+}
+function plus(size){
+  return `<svg width="${size}" height="${size}" viewBox="0 0 14 14"><path d="M7 2.6v8.8M2.6 7h8.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`;
+}
+function chev(size){
+  const s=size||12;
+  return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9.5l6 6 6-6"/></svg>`;
+}
+
+function navItem(kind,label,on){
+  return `<div class="item ${on?'on':''}">${svgIcon(kind,18,on?C.accent:C.muted)}<span class="lab">${label}</span></div>`;
+}
+
+// 未完成行：极简，只有勾选框 + 标题
+function taskRow(t){
+  return `<div class="task">
+    <span class="cb">${cb(false)}</span>
+    <span class="tt">${t.title}</span>
+  </div>`;
+}
+// 已完成行：勾选框(满) + 划线标题 + 归档按钮
+function doneRow(t){
+  return `<div class="task done">
+    <span class="cb">${cb(true)}</span>
+    <span class="tt">${t.title}</span>
+    <span class="meta"><span class="act">${svgIcon('box',12,C.muted)}归档</span></span>
+  </div>`;
+}
+// 归档行：文件箱图标 + 标题 + 恢复
+function archRow(t){
+  return `<div class="arow">
+    <span class="ic">${svgIcon('box',14,C.muted2)}</span>
+    <span class="tt">${t.title}</span>
+    <span class="restore">恢复</span>
+  </div>`;
+}
+
+function island(cfg){
+  const tab=cfg.tab||'list';          // 'list' | 'archive'
+  const filter=cfg.filter||'all';     // all | todo | done
+  const LBL={all:'全部',todo:'未完成',done:'已完成'};
+  const CNT={all:cfg.total,todo:cfg.todoCount,done:cfg.doneCount};
+
+  // 头部：只有标题 + 进度环
+  const hd=`<div class="hd">
+      <div class="title">待办</div>
+      <div class="right"><span class="ring">${ring(cfg.done,cfg.total)}</span></div>
+    </div>`;
+
+  // 两个 tab：第 1 个是下拉筛选（全部/未完成/已完成，默认全部），第 2 个归档
+  const menu=cfg.menuOpen?`<div class="menu">
+      ${['all','todo','done'].map(k=>`<div class="opt ${filter===k?'on':''}">${LBL[k]}<span class="oc">${CNT[k]}</span></div>`).join('')}
+    </div>`:'';
+  const tabs=`<div class="tabs">
+      <div class="ddwrap">
+        <span class="tab dd ${tab==='list'?'on':''}">${LBL[filter]}<span class="cnt">${CNT[filter]}</span><span class="chev">${chev(12)}</span></span>
+        ${menu}
+      </div>
+      <span class="tab ${tab==='archive'?'on':''}">归档<span class="cnt">${cfg.archTotal}</span></span>
+    </div>`;
+
+  // 主体
+  let body='';
+  if(tab==='archive'){
+    body=`<div class="list">`+cfg.groups.map(g=>`
+      <div class="group">
+        <div class="glabel">创建于 ${g.date}<span class="c">· ${g.items.length}</span></div>
+        ${g.items.map(archRow).join('')}
+      </div>`).join('')+`</div>`;
+  }else{
+    let g='';
+    if(filter==='all'||filter==='todo'){
+      g+=`<div class="group"><div class="glabel">未完成<span class="c">· ${cfg.todoCount}</span></div>${cfg.incomplete.map(taskRow).join('')}</div>`;
+    }
+    if(filter==='all'||filter==='done'){
+      g+=`<div class="group"><div class="glabel">已完成<span class="c">· ${cfg.doneCount}</span></div>${cfg.completed.map(doneRow).join('')}</div>`;
+    }
+    body=`<div class="list">${g}</div>`;
+  }
+
+  // 底部快速收集（列表的 全部/未完成 下常驻）
+  const add=(tab==='list'&&filter!=='done')
+    ? `<div class="addrow">${plus(13)}<span class="ph">添加待办…</span><span class="hint">回车保存</span></div>`
+    : '';
+
+  return `<div class="island">
+    <div class="rail">
+      <div class="time">16:31</div>
+      <div class="nav">
+        ${navItem('music','音乐',false)}
+        ${navItem('todo','待办',true)}
+        ${navItem('weather','天气',false)}
+      </div>
+      <div class="set">${svgIcon('set',18,C.muted)}<span class="lab">设置</span></div>
+    </div>
+    <div class="content">
+      ${hd}
+      ${tabs}
+      ${body}
+      ${add}
+    </div>
+  </div>`;
+}
+
+// ---- 数据 ----
+const BASE={todoCount:6,doneCount:7,done:7,total:13,archTotal:5};
+const INC=[{title:'补交报销单'},{title:'回复产品评审意见'},{title:'整理 Q4 数据看板'},{title:'提交周报'},{title:'整理会议纪要'},{title:'预约牙医复诊'}];
+const CMP=[{title:'修复登录闪退'},{title:'写周报'},{title:'买猫粮'},{title:'回复客户邮件'},{title:'更新依赖版本'},{title:'清理旧日志'},{title:'归档会议录音'}];
+
+// 主视图：全部（默认）—— 展示 未完成/已完成 两组，最近完成项在已完成队列第一行
+const HERO={...BASE,tab:'list',filter:'all',
+  incomplete:INC.slice(0,2),
+  completed:CMP.slice(0,2)};
+
+// 状态 A：第一个 tab 的下拉展开（全部/未完成/已完成）
+const DROP={...BASE,tab:'list',filter:'all',menuOpen:true,
+  incomplete:INC.slice(0,2),
+  completed:CMP.slice(0,1)};
+
+const ARCH={...BASE,tab:'archive',
+  groups:[
+    {date:'11月18日', items:[{title:'整理季度预算表'},{title:'对接设计评审'}]},
+    {date:'11月15日', items:[{title:'采购键鼠外设'},{title:'写季度复盘'}]},
+    {date:'11月12日', items:[{title:'备份会议录音'}]},
+  ]};
+
+// 等比缩放到容器内（hero 用 2×，变体用 0.9×）
+function mountScaled(id,cfg,scale){
+  const host=document.getElementById(id);
+  const w=520*scale, h=300*scale;
+  host.style.width=w+'px'; host.style.height=h+'px';
+  const inner=document.createElement('div');
+  inner.className='scaled';
+  inner.style.transform='scale('+scale+')';
+  inner.style.width='520px'; inner.style.height='300px';
+  inner.innerHTML=island(cfg);
+  host.appendChild(inner);
+}
+mountScaled('hero',HERO,2);
+mountScaled('v-drop',DROP,0.9);
+mountScaled('v-arch',ARCH,0.9);
+
+window.__ready=true;
+</script>
+</body>
+</html>

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>WinIsle · 到点提醒 边缘光效方案</title>
+<style>
+:root{
+  --ink:#E9ECF2; --muted:#969EAF; --muted2:#6B7180;
+  --accent:#34D399; --water:#39C7FF;
+  --paper:#f1ece1; --card:#fbf8f1;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1200px 600px at 20% -10%, #f7f2e7 0%, var(--paper) 55%, #e9e2d3 100%);
+  color:#2b2a26;
+  font-family:"Segoe UI","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  padding:54px 46px 70px;
+}
+.eyebrow{font-size:12px;letter-spacing:.22em;color:#9a8f78;text-transform:uppercase;font-weight:700}
+h1{font-size:34px;margin:8px 0 8px;letter-spacing:-.01em;font-weight:800}
+.sub{font-size:14.5px;color:#6f6a5e;line-height:1.7;max-width:860px}
+.sub b{color:#2b2a26}
+
+.grid{display:grid;grid-template-columns:repeat(2,600px);gap:34px 40px;margin-top:38px}
+.item{background:var(--card);border:1px solid #e4dccb;border-radius:20px;padding:20px 20px 18px;
+  box-shadow:0 18px 40px -28px rgba(60,48,20,.5);}
+.head{display:flex;align-items:baseline;gap:10px;margin:2px 0 14px}
+.no{width:24px;height:24px;border-radius:8px;background:#2b2a26;color:#f6f1e5;font-size:12.5px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.name{font-size:15px;font-weight:800}
+.desc{font-size:12.5px;color:#7a745f;margin-left:auto;text-align:right}
+.tag{font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:99px;background:#e7f6ee;color:#1c7a52;border:1px solid #c9ead9}
+.tag.alt{background:#f3efe2;color:#8a7c4e;border-color:#e4dbc0}
+
+/* ---------- 岛内实景 ---------- */
+.stage{width:520px;height:300px;position:relative;border-radius:22px;overflow:hidden;
+  background:linear-gradient(180deg,#21232c,#16171c);
+  box-shadow:0 26px 44px -26px rgba(10,12,18,.75), 0 2px 0 rgba(255,255,255,.04) inset;}
+.rail{position:absolute;left:0;top:0;width:66px;bottom:0;background:rgba(22,23,28,.92);
+  display:flex;flex-direction:column;align-items:center;padding-top:16px;gap:20px;z-index:2}
+.rail .tm{color:#E9ECF2;font-size:17px;font-weight:800;letter-spacing:.5px;margin-bottom:4px}
+.rail .ri{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;opacity:.55}
+.rail .ri.on{background:rgba(52,211,153,.14);opacity:1;box-shadow:0 0 0 1px rgba(52,211,153,.35) inset}
+.rail .ri svg{width:19px;height:19px;stroke:#cfd6e2;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.rail .ri.on svg{stroke:var(--accent)}
+.page{position:absolute;left:66px;top:0;right:0;bottom:0;padding:18px 20px}
+.page h3{margin:0;font-size:17px;color:#E9ECF2;font-weight:800}
+.page .hint{font-size:11px;color:#6B7180;margin-top:5px}
+.prow{display:flex;align-items:center;gap:11px;margin-top:15px;opacity:.5}
+.prow .pic{width:30px;height:30px;border-radius:9px;background:rgba(255,255,255,.06)}
+.prow .pl{height:9px;border-radius:4px;background:rgba(255,255,255,.10);width:120px}
+.prow .pl.s{width:70px;height:7px;margin-top:5px;background:rgba(255,255,255,.07)}
+.prow .pt{margin-left:auto;width:34px;height:18px;border-radius:9px;background:rgba(52,211,153,.5)}
+.dim{position:absolute;inset:0;left:66px;background:rgba(12,14,18,.66);z-index:3;
+  border-radius:0 22px 22px 0}
+
+/* ---------- 提醒卡片（内容统一） ---------- */
+.alert{position:absolute;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:360px;height:172px;border-radius:16px;background:#1e2128;
+  display:flex;flex-direction:column;align-items:center;padding-top:19px}
+.ic{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:rgba(57,199,255,.22)}
+.ic svg{width:24px;height:24px;stroke:#39C7FF;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.t{font-size:19px;font-weight:800;color:#E9ECF2;margin-top:9px;letter-spacing:.2px}
+.s{font-size:11.5px;color:#969EAF;margin-top:5px}
+.btns{display:flex;gap:12px;margin-top:15px}
+.btn{height:34px;border-radius:10px;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;border:0}
+.ghost{width:148px;background:transparent;border:1px solid rgba(255,255,255,.16);color:#E9ECF2}
+.solid{width:148px;background:#39C7FF;color:#08251d}
+.foot{font-size:9.5px;color:#6B7180;margin-top:9px}
+
+/* ============ 方案 1 静默描边（无动画） ============ */
+.v1 .alert{border:1px solid rgba(57,199,255,.42);
+  box-shadow:0 18px 44px -14px rgba(0,0,0,.7), 0 0 0 1px rgba(57,199,255,.06);}
+
+/* ============ 方案 2 柔光呼吸（推荐） ============ */
+.v2 .alert{animation:softbreathe 3.2s ease-in-out infinite}
+@keyframes softbreathe{
+  0%,100%{box-shadow:0 18px 44px -14px rgba(0,0,0,.7), 0 0 22px -4px rgba(57,199,255,.18), 0 0 1px rgba(57,199,255,.3);}
+  50%{box-shadow:0 18px 44px -14px rgba(0,0,0,.7), 0 0 42px 2px rgba(57,199,255,.40), 0 0 1px rgba(57,199,255,.5);}
+}
+
+/* ============ 方案 3 单圈扩散波 ============ */
+.v3 .alert{box-shadow:0 18px 44px -14px rgba(0,0,0,.7)}
+.v3 .alert::after{content:"";position:absolute;inset:-1px;border-radius:17px;pointer-events:none;
+  border:1.5px solid rgba(57,199,255,.55);filter:blur(1.5px);animation:ripple 2.8s ease-out infinite}
+@keyframes ripple{
+  0%{transform:scale(1);opacity:.55}
+  65%{opacity:0}
+  100%{transform:scale(1.16);opacity:0}
+}
+
+/* ============ 方案 4 流光扫边 ============ */
+@property --ga{syntax:'<angle>';initial-value:0deg;inherits:false}
+.v4 .alert{box-shadow:0 18px 44px -14px rgba(0,0,0,.7)}
+.v4 .alert::before{content:"";position:absolute;inset:0;border-radius:16px;padding:1.6px;pointer-events:none;
+  background:conic-gradient(from var(--ga), rgba(57,199,255,0) 0deg, rgba(57,199,255,.85) 42deg,
+    rgba(57,199,255,0) 96deg, rgba(57,199,255,0) 360deg);
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+  animation:spin 4.2s linear infinite}
+@keyframes spin{to{--ga:360deg}}
+
+/* ============ 方案 5 顶部高光条（极简） ============ */
+.v5 .alert{box-shadow:0 18px 44px -14px rgba(0,0,0,.7)}
+.v5 .alert::before{content:"";position:absolute;top:0;left:16%;right:16%;height:2px;border-radius:2px;
+  background:linear-gradient(90deg,transparent,rgba(57,199,255,.9),transparent);
+  animation:sheen 2.8s ease-in-out infinite}
+@keyframes sheen{0%,100%{opacity:.35;transform:scaleX(.85)}50%{opacity:1;transform:scaleX(1)}}
+.v5 .ic{animation:iconpulse 2.8s ease-in-out infinite}
+@keyframes iconpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.07)}}
+
+/* ============ 方案 6 整屏边缘柔光（贴合“提示屏边缘”） ============ */
+.v6 .alert{box-shadow:0 18px 44px -14px rgba(0,0,0,.7);border:1px solid rgba(255,255,255,.06)}
+.v6 .stage::after{content:"";position:absolute;inset:0;border-radius:22px;pointer-events:none;z-index:4;
+  box-shadow:inset 0 0 52px 6px rgba(57,199,255,.16), inset 0 0 6px 1px rgba(57,199,255,.35);
+  animation:edgebreathe 3.6s ease-in-out infinite}
+@keyframes edgebreathe{
+  0%,100%{box-shadow:inset 0 0 34px 2px rgba(57,199,255,.10), inset 0 0 4px 1px rgba(57,199,255,.20)}
+  50%{box-shadow:inset 0 0 62px 10px rgba(57,199,255,.26), inset 0 0 8px 2px rgba(57,199,255,.45)}
+}
+
+/* ============ 方案 7 无光效 · 纯卡片 ============ */
+.v7 .alert{box-shadow:0 20px 50px -14px rgba(0,0,0,.8);border:1px solid rgba(255,255,255,.05)}
+.v7 .ic{box-shadow:0 0 0 5px rgba(57,199,255,.06)}
+
+.note{margin-top:44px;background:#fbf8f1;border:1px solid #e4dccb;border-radius:18px;padding:22px 26px;max-width:1180px}
+.note h2{font-size:16px;margin:0 0 10px}
+.note ul{margin:0;padding-left:20px;color:#5f594b;font-size:13.5px;line-height:1.85}
+.note code{background:#efe8d8;padding:1px 6px;border-radius:6px;font-size:12px;color:#7a6535}
+</style>
+</head>
+<body>
+<div class="eyebrow">WinIsle · Reminder</div>
+<h1>到点提醒 · 边缘光效方案</h1>
+<div class="sub">
+  当前实现是「多层描边快速明暗抖动」，观感偏廉价。下面 7 款改用<b>柔和发光、缓慢呼吸、单圈波纹、流光扫边</b>等更克制的手法。
+  都是在真实岛体（520×300、左栏 66px）里的同一张提醒卡片上叠加，方便直接对比。
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="note">
+  <h2>选择建议</h2>
+  <ul>
+    <li><b>方案 2 柔光呼吸</b>：动的是「模糊光晕的透明度」，没有硬边在跳，最像高端硬件的呼吸灯，推荐作为默认。</li>
+    <li><b>方案 5 顶部高光条</b>：完全不做四周光晕，只在顶部一条流光 + 图标轻脉冲，最克制、最不打扰。</li>
+    <li><b>方案 6 整屏边缘柔光</b>：把光放到「岛体四周内壁」，最贴合你说的“整个提示屏边缘”，但会略微影响背景内容。</li>
+    <li>方案 3 单圈波纹 / 4 流光扫边 更“活”，适合想要存在感强一点的场景。</li>
+  </ul>
+</div>
+
+<script>
+const drop = `<svg viewBox="0 0 24 24"><path d="M12 3.2c3.4 4.1 6 7 6 10.2a6 6 0 1 1-12 0C6 10.2 8.6 7.3 12 3.2z"/></svg>`;
+const railIcons = {
+  music:`<svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>`,
+  todo:`<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.2l2.6 2.6L16 9.4"/></svg>`,
+  bell:`<svg viewBox="0 0 24 24"><path d="M6 16.5h12M8 16.5V11a4 4 0 0 1 8 0v5.5M10.5 19a1.7 1.7 0 0 0 3 0"/></svg>`,
+  cloud:`<svg viewBox="0 0 24 24"><path d="M7 18h10a3.4 3.4 0 0 0 .3-6.8A5 5 0 0 0 7.6 10 3.9 3.9 0 0 0 7 18z"/></svg>`
+};
+const items = [
+  {n:1,cls:'v1',name:'静默描边',desc:'无动画 · 只留 1px 同色描边',tag:''},
+  {n:2,cls:'v2',name:'柔光呼吸',desc:'模糊光晕缓慢明暗 · 3.2s',tag:'推荐'},
+  {n:3,cls:'v3',name:'单圈扩散波',desc:'一圈柔光向外扩散淡出 · 2.8s',tag:''},
+  {n:4,cls:'v4',name:'流光扫边',desc:'沿卡片边缘旋转的流光 · 4.2s',tag:''},
+  {n:5,cls:'v5',name:'顶部高光条',desc:'仅顶部一丝流光 + 图标轻脉冲',tag:'次选'},
+  {n:6,cls:'v6',name:'整屏边缘柔光',desc:'光在内壁，呼吸式明暗 · 3.6s',tag:''},
+  {n:7,cls:'v7',name:'无光效 · 纯卡片',desc:'去掉一切光晕，只靠投影分层',tag:'最克制'},
+];
+
+function pageHtml(){
+  return `<div class="rail">
+      <div class="tm">20:31</div>
+      <div class="ri">${railIcons.music}</div>
+      <div class="ri">${railIcons.todo}</div>
+      <div class="ri on">${railIcons.bell}</div>
+      <div class="ri">${railIcons.cloud}</div>
+    </div>
+    <div class="page">
+      <h3>提醒</h3>
+      <div class="hint">开启后从现在开始计时 · 重新打开 WinIsle 会从启动时重新计时</div>
+      <div class="prow"><div class="pic"></div><div><div class="pl"></div><div class="pl s"></div></div><div class="pt"></div></div>
+      <div class="prow"><div class="pic"></div><div><div class="pl"></div><div class="pl s"></div></div><div class="pt"></div></div>
+      <div class="prow"><div class="pic"></div><div><div class="pl"></div><div class="pl s"></div></div><div class="pt"></div></div>
+    </div>
+    <div class="dim"></div>`;
+}
+function alertHtml(){
+  return `<div class="alert">
+      <div class="ic">${drop}</div>
+      <div class="t">喝水时间到</div>
+      <div class="s">距上次喝水30分钟 · 起来喝口水</div>
+      <div class="btns"><div class="btn ghost">稍后 10 分钟</div><div class="btn solid">完成</div></div>
+      <div class="foot">持续提醒中 · 完成后收起</div>
+    </div>`;
+}
+
+document.getElementById('grid').innerHTML = items.map(it=>`
+  <div class="item">
+    <div class="head">
+      <div class="no">${it.n}</div><div class="name">${it.name}</div>
+      ${it.tag?`<div class="tag ${it.tag==='最克制'||it.tag==='次选'?'alt':''}">${it.tag}</div>`:''}
+      <div class="desc">${it.desc}</div>
+    </div>
+    <div class="stage ${it.cls}">
+      ${pageHtml()}
+      ${alertHtml()}
+    </div>
+  </div>`).join('');
+</script>
+</body>
+</html>

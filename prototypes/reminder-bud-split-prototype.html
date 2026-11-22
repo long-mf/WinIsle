@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>WinIsle · 收起态提醒 · 岛体分裂原型 v4</title>
+<style>
+  :root{
+    --paper:#f1ece1; --ink:#20242c; --muted:#6b7280; --muted2:#9aa3b2;
+    --mint:#34D399; --blue:#39C7FF; --amber:#E6B23C; --coral:#F2705C; --type:var(--blue);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Microsoft YaHei UI","Microsoft YaHei",-apple-system,"Segoe UI",sans-serif;}
+  .wrap{max-width:1120px;margin:0 auto;padding:36px 40px 60px;}
+  .eyebrow{font-size:12px;letter-spacing:.14em;color:var(--muted2);font-weight:700}
+  h1{font-size:26px;margin:10px 0 6px;letter-spacing:-.01em}
+  h1 span{color:#12996e}
+  .sub{color:var(--muted);font-size:13.5px;line-height:1.75;max-width:780px}
+  .demo-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:20px 0 12px}
+  .chip{border:1px solid rgba(32,36,44,.14);background:#fff;border-radius:999px;padding:7px 13px;
+    font-size:12.5px;cursor:pointer;display:flex;align-items:center;gap:7px;transition:all .16s}
+  .chip:hover{border-color:rgba(32,36,44,.3)}
+  .chip.on{background:rgba(52,211,153,.13);border-color:rgba(52,211,153,.55);color:#0c7a56;font-weight:700}
+  .chip .d{width:9px;height:9px;border-radius:50%}
+  .btn-fire{background:#f3c94e;border:none;border-radius:10px;padding:9px 16px;font-size:13px;
+    font-weight:700;cursor:pointer;box-shadow:0 2px 0 #d8ab2c}
+  .btn-fire.multi{background:#8ad8bd;box-shadow:0 2px 0 #59b596}
+  .btn-ghost{background:#fff;border:1px solid rgba(32,36,44,.18);border-radius:10px;padding:9px 15px;font-size:12.5px;cursor:pointer}
+  .hint{font-size:12px;color:var(--muted2)}
+
+  .stagewrap{background:linear-gradient(180deg,#dcd6c8,#cfc7b4);border-radius:18px;padding:24px 20px;box-shadow:inset 0 1px 0 rgba(255,255,255,.5)}
+  .stage{position:relative;width:560px;height:262px;margin:0 auto;}
+  .desk{position:absolute;inset:0;border-radius:16px;
+    background:radial-gradient(90% 120% at 22% 8%,rgba(255,255,255,.55),rgba(255,255,255,0) 55%),
+      linear-gradient(160deg,#e3dccb 0%,#cdc3ac 55%,#b3a88f 100%);
+    box-shadow:0 18px 40px -18px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.6)}
+
+  /* 岛体 + 分裂体：同一 metaball 膜 */
+  .goo{position:absolute;inset:0;filter:url(#gooF);}
+  .island{position:absolute;left:94px;top:7px;width:372px;height:34px;border-radius:17px;background:#1d242e;transform-origin:50% 100%}
+  .bud2{position:absolute;left:0;top:0;width:56px;height:56px;border-radius:50%;background:#1d242e;will-change:transform}
+  .stem2{position:absolute;left:0;top:0;width:11px;height:90px;border-radius:6px;background:#1d242e;
+    transform-origin:50% 0;will-change:transform}
+
+  .pill-ui{position:absolute;left:94px;top:7px;width:372px;height:34px;display:flex;align-items:center;gap:10px;padding:0 14px;overflow:hidden;border-radius:17px}
+  .eq{display:flex;align-items:flex-end;gap:2.5px;height:14px}
+  .eq i{width:2.6px;background:var(--mint);border-radius:2px;animation:eq .9s ease-in-out infinite}
+  .eq i:nth-child(1){height:6px}.eq i:nth-child(2){height:12px;animation-delay:.15s}
+  .eq i:nth-child(3){height:8px;animation-delay:.3s}.eq i:nth-child(4){height:13px;animation-delay:.45s}
+  @keyframes eq{0%,100%{transform:scaleY(.55)}50%{transform:scaleY(1)}}
+  .marq{flex:0 1 128px;max-width:128px;overflow:hidden;white-space:nowrap;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 12px),transparent);
+    mask-image:linear-gradient(90deg,transparent,#000 12px,#000 calc(100% - 12px),transparent)}
+  .mrun{display:inline-block;padding-right:26px;animation:mq 9s linear infinite;font-size:12px;color:#dfe5ee}
+  @keyframes mq{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+  .ptime{margin-left:auto;font-size:12px;color:#aeb7c4;font-variant-numeric:tabular-nums;font-weight:600}
+
+  /* 提醒卡：固定尺寸，只用 transform 做 Q 弹，避免 width/height 布局抖动 */
+  .card{position:absolute;left:0;top:0;width:224px;height:54px;border-radius:16px;
+    background:#1d242e;border:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:10px;
+    padding:0 12px;opacity:0;will-change:transform,opacity;pointer-events:none;overflow:hidden}
+  .card .ic{flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+    background:color-mix(in srgb,var(--type) 20%,#20262f);color:var(--type)}
+  .card .txt{flex:1;min-width:0}
+  .card .t{font-size:12.5px;font-weight:700;color:#eef2f7;white-space:nowrap}
+  .card .acts{display:flex;gap:6px}
+  .card button{border:none;border-radius:8px;padding:5px 9px;font-size:10.5px;font-weight:700;cursor:pointer}
+  .card .sn{background:rgba(255,255,255,.07);color:#cfd6e0;border:1px solid rgba(255,255,255,.12)}
+  .card .dn{background:var(--type);color:#08251d}
+  .ring{position:absolute;border:2px solid var(--type);border-radius:50%;opacity:0;pointer-events:none}
+  .pt{position:absolute;width:5px;height:5px;border-radius:50%;opacity:0;pointer-events:none}
+  .dot{position:absolute;right:6px;top:9px;width:7px;height:7px;border-radius:50%;background:var(--coral);opacity:0;transition:opacity .2s}
+  .island-squeeze{animation:squeeze .22s ease}
+  @keyframes squeeze{0%{transform:scale(1,1)}45%{transform:scale(1.014,.9)}100%{transform:scale(1,1)}}
+  .stagetag{position:absolute;right:12px;bottom:8px;font-size:10.5px;color:rgba(0,0,0,.16);letter-spacing:.08em}
+
+  .notes{margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .note{background:#fff;border:1px solid rgba(32,36,44,.1);border-radius:14px;padding:15px 18px}
+  .note h3{margin:0 0 8px;font-size:13px}
+  .note p{margin:0;font-size:12px;color:var(--muted);line-height:1.7}
+  .note code{background:#f3efe6;padding:1px 5px;border-radius:4px;font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">WINISLE · 收起态提醒 · 原型 v4</div>
+  <h1>岛体边缘 <span>分裂</span> 出圆形提醒 · Q 弹版</h1>
+  <p class="sub">这一版针对“慢、卡、位置固定、多个提醒”重做：分裂起点在末尾模块区域内随机；全程用 transform / Web Animations，避免 width/height 逐帧布局；提醒出现带 Q 弹过冲；支持同时分裂出多个提醒并纵向排开。</p>
+
+  <div class="demo-bar">
+    <button class="chip on" data-type="water"><span class="d" style="background:#39C7FF"></span>喝水</button>
+    <button class="chip" data-type="sit"><span class="d" style="background:#E6B23C"></span>久坐</button>
+    <button class="chip" data-type="eye"><span class="d" style="background:#34D399"></span>护眼</button>
+    <button class="btn-fire" id="fire">⚡ 分裂一个提醒</button>
+    <button class="btn-fire multi" id="fire3">⚡⚡⚡ 同时来 3 个</button>
+    <button class="btn-ghost" id="reset">重置</button>
+    <span class="hint" id="hint">看岛体边缘：起点在末尾模块区域内随机</span>
+  </div>
+
+  <div class="stagewrap">
+    <div class="stage" id="stage">
+      <div class="desk"></div>
+      <div class="goo" id="goo"><div class="island" id="island"></div></div>
+      <div class="pill-ui">
+        <div class="eq"><i></i><i></i><i></i><i></i></div>
+        <div class="marq"><div class="mrun">风继续吹 · 张国荣　　风继续吹 · 张国荣　　</div></div>
+        <div class="ptime" id="ptime">21:58</div>
+      </div>
+      <div class="stagetag">模拟屏幕顶部</div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><h3>为什么更快更顺</h3><p>分裂体只用 <code>transform</code>（translate + scale）在合成层移动，细颈用 <code>scaleY</code> 拉伸；提醒卡固定 224×54，只做 <code>scale</code> + 圆角变化，不再逐帧改 width/height，所以不会触发重排卡顿。</p></div>
+    <div class="note"><h3>Q 弹与多提醒</h3><p>卡片弹出用 <code>cubic-bezier(.34,1.56,.64,1)</code> 过冲回弹；每个提醒独立 origin 与目标槽位，按 62px 纵向排列，最多同时展示 3 个，点该卡的完成/稍后各自收回。</p></div>
+  </div>
+</div>
+
+<svg width="0" height="0" style="position:absolute"><defs>
+  <filter id="gooF" x="-40%" y="-60%" width="180%" height="260%">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="6.2" result="b"/>
+    <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -8" result="mask"/>
+    <feFlood flood-color="#1d242e" result="col"/>
+    <feComposite in="col" in2="mask" operator="in"/>
+  </filter>
+</defs></svg>
+
+<script>
+const TYPES={
+  water:{c:'#39C7FF',name:'喝水时间到',icon:'water'},
+  sit:{c:'#E6B23C',name:'该起来活动一下了',icon:'sit'},
+  eye:{c:'#34D399',name:'远眺一下，放松眼睛',icon:'eye'}
+};
+let type='water';
+const root=document.documentElement;
+const stage=document.getElementById('stage');
+const goo=document.getElementById('goo');
+const island=document.getElementById('island');
+const ptime=document.getElementById('ptime');
+const hint=document.getElementById('hint');
+const TARGET_X=436;             // 卡片中心 x
+const SLOT_Y0=92, SLOT_H=58;    // 多卡纵向槽位
+const MAX_CARDS=3;
+let cards=[];                   // {el,slot}
+let dotTimer=0;
+
+function iconSvg(kind,color){
+  if(kind==='water') return `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2c3.6 3.9 6 7.2 6 10.2a6 6 0 1 1-12 0c0-3 2.4-6.3 6-10.2z"/></svg>`;
+  if(kind==='sit') return `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10V6.5A2.5 2.5 0 0 1 9.5 4h5A2.5 2.5 0 0 1 17 6.5V10"/><path d="M6 10h12v5H6z"/><path d="M8 15v5M16 15v5"/></svg>`;
+  return `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6" fill="${color}" stroke="none"/></svg>`;
+}
+function hexA(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;}
+function applyType(t){
+  type=t; root.style.setProperty('--type',TYPES[t].c);
+  document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.type===t));
+}
+document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>applyType(c.dataset.type));
+
+/* 末尾模块区域：在时间模块前后一段宽度内随机取分裂起点 */
+const FIXED_OX=new URLSearchParams(location.search).get("ox");
+function randomOriginX(){
+  if(FIXED_OX) return parseFloat(FIXED_OX);
+  const sr=stage.getBoundingClientRect(), tr=ptime.getBoundingClientRect();
+  const right=tr.right-sr.left-4;
+  const left=Math.max(150, right-90);          // 末尾模块一带（约 90px 随机窗）
+  return left + Math.random()*(right-left);
+}
+
+function fireOne(slot){
+  const color=TYPES[type].c;
+  const ox=randomOriginX();
+  const oy=39;                                  // 岛体下缘
+  const ty=SLOT_Y0+slot*SLOT_H;
+  const dx=TARGET_X-ox, dy=ty-oy;
+  const angle=-Math.atan2(dx, dy)*180/Math.PI;  // 相对 +Y(向下) 的夹角（CSS 正角向左，取负）
+  const dist=Math.hypot(dx,dy);
+
+  // 分裂体 + 细颈（同一 goo 膜）
+  const bud=document.createElement('div'); bud.className='bud2';
+  bud.style.transform=`translate(${ox-28}px,${oy-28}px) scale(.10)`;
+  const stem=document.createElement('div'); stem.className='stem2';
+  stem.style.height=dist+'px';
+  stem.style.transform=`translate(${ox-5.5}px,${oy}px) rotate(${angle}deg) scaleY(.05)`;
+  goo.appendChild(stem); goo.appendChild(bud);
+
+  island.classList.remove('island-squeeze'); void island.offsetWidth; island.classList.add('island-squeeze');
+
+  const midX=(ox+TARGET_X)/2+(Math.random()*16-8), midY=(oy+ty)/2;
+  bud.animate([
+    {transform:`translate(${ox-28}px,${oy-28}px) scale(.10)`,offset:0},
+    {transform:`translate(${midX-28}px,${midY-28}px) scale(.62)`,offset:.55},
+    {transform:`translate(${TARGET_X-28}px,${ty-28}px) scale(1)`,offset:1}
+  ],{duration:300,easing:'cubic-bezier(.22,.8,.28,1)',fill:'forwards'});
+  stem.animate([
+    {transform:`translate(${ox-5.5}px,${oy}px) rotate(${angle}deg) scaleY(.05)`,opacity:1,offset:0},
+    {transform:`translate(${ox-5.5}px,${oy}px) rotate(${angle}deg) scaleY(1)`,opacity:1,offset:.72},
+    {transform:`translate(${ox-5.5}px,${oy}px) rotate(${angle}deg) scaleY(0)`,opacity:1,offset:1}
+  ],{duration:300,easing:'cubic-bezier(.3,.7,.3,1)',fill:'forwards'});
+
+  setTimeout(()=>{ bud.remove(); stem.remove(); popCard(slot); }, 305);
+}
+
+function popCard(slot){
+  const color=TYPES[type].c, name=TYPES[type].name;
+  const el=document.createElement('div'); el.className='card';
+  el.innerHTML=`<div class="ic">${iconSvg(TYPES[type].icon,color)}</div>
+    <div class="txt"><div class="t">${name}</div></div>
+    <div class="acts"><button class="sn">稍后</button><button class="dn">完成</button></div>`;
+  stage.appendChild(el);
+  const ty=SLOT_Y0+slot*SLOT_H;
+  el.style.transform=`translate(${TARGET_X-112}px,${ty-27}px) scale(.16)`;
+  el.style.borderRadius='50%';
+
+  // 分离闪光
+  shock(TARGET_X,ty,color);
+
+  el.animate([
+    {transform:`translate(${TARGET_X-112}px,${ty-27}px) scale(.16)`,opacity:0,borderRadius:'50%',offset:0},
+    {transform:`translate(${TARGET_X-112}px,${ty-27}px) scale(.72)`,opacity:1,borderRadius:'50%',offset:.32},
+    {transform:`translate(${TARGET_X-112}px,${ty-27}px) scale(1.10)`,opacity:1,borderRadius:'22px',offset:.78},
+    {transform:`translate(${TARGET_X-112}px,${ty-27}px) scale(1)`,opacity:1,borderRadius:'16px',offset:1}
+  ],{duration:380,easing:'cubic-bezier(.34,1.56,.64,1)',fill:'forwards'});
+  el.style.pointerEvents='auto';
+  el.querySelector('.sn').onclick=()=>retract(el,slot);
+  el.querySelector('.dn').onclick=()=>retract(el,slot);
+  cards.push({el,slot});
+  // 常驻呼吸
+  el.animate([{boxShadow:`0 0 10px -2px ${hexA(color,.16)},0 10px 26px -12px rgba(0,0,0,.6)`},
+              {boxShadow:`0 0 26px 3px ${hexA(color,.44)},0 10px 26px -12px rgba(0,0,0,.6)`}],
+             {duration:1100,direction:'alternate',iterations:Infinity,easing:'ease-in-out'});
+}
+
+function shock(x,y,color){
+  const r=document.createElement('div'); r.className='ring';
+  r.style.left=(x-10)+'px'; r.style.top=(y-10)+'px';
+  stage.appendChild(r);
+  r.animate([{width:'20px',height:'20px',opacity:.65},{width:'104px',height:'104px',opacity:0}],
+    {duration:420,easing:'cubic-bezier(.2,.7,.3,1)'}).onfinish=()=>r.remove();
+  for(let i=0;i<10;i++){
+    const p=document.createElement('div'); p.className='pt';
+    p.style.left=x+'px'; p.style.top=y+'px'; p.style.background=color; stage.appendChild(p);
+    const a=Math.PI*2*i/10+Math.random()*.4, sp=26+Math.random()*30;
+    p.animate([{transform:'translate(-50%,-50%) scale(1)',opacity:1},
+      {transform:`translate(${Math.cos(a)*sp-2.5}px,${Math.sin(a)*sp-2.5}px) scale(.3)`,opacity:0}],
+      {duration:480+Math.random()*200,easing:'cubic-bezier(.2,.7,.3,1)'}).onfinish=()=>p.remove();
+  }
+}
+
+function retract(el,slot){
+  el.style.pointerEvents='none';
+  el.animate([{transform:el.style.transform,opacity:1},
+    {transform:`translate(${TARGET_X-112}px,${SLOT_Y0+slot*SLOT_H-27}px) scale(.16)`,opacity:0}],
+    {duration:300,easing:'cubic-bezier(.4,0,.2,1)',fill:'forwards'}).onfinish=()=>{el.remove();};
+  cards=cards.filter(c=>c.el!==el);
+  showDot();
+  setTimeout(()=>reslot(),300);
+}
+function reslot(){
+  cards.sort((a,b)=>a.slot-b.slot).forEach((c,i)=>{
+    if(c.slot!==i){
+      c.slot=i;
+      const ty=SLOT_Y0+i*SLOT_H;
+      c.el.animate([{transform:`translate(${TARGET_X-112}px,${ty-27}px) scale(1)`}],
+        {duration:220,easing:'cubic-bezier(.34,1.4,.64,1)',fill:'forwards'});
+    }
+  });
+}
+function showDot(){
+  const d=document.createElement('div'); d.className='dot'; stage.appendChild(d);
+  requestAnimationFrame(()=>d.style.opacity='1');
+  setTimeout(()=>{d.style.opacity='0'; setTimeout(()=>d.remove(),260);},1800);
+}
+
+function fireMany(n){
+  const free=[];
+  for(let s=0;s<MAX_CARDS;s++) if(!cards.some(c=>c.slot===s)) free.push(s);
+  const slots=free.slice(0,n);
+  slots.forEach((s,i)=>setTimeout(()=>fireOne(s), i*70));   // 轻微错峰，避免同时炸
+  hint.textContent=`${slots.length} 个提醒各自从末尾模块随机位置分裂`;
+}
+
+document.getElementById('fire').onclick=()=>fireMany(1);
+document.getElementById('fire3').onclick=()=>fireMany(3);
+document.getElementById('reset').onclick=()=>{
+  cards.forEach(c=>c.el.remove()); cards=[];
+  goo.querySelectorAll('.bud2,.stem2').forEach(e=>e.remove());
+  stage.querySelectorAll('.dot,.ring,.pt').forEach(e=>e.remove());
+  island.classList.remove('island-squeeze');
+  hint.textContent='已重置';
+};
+applyType('water');
+
+/* 快照：?snap=bud|circle|cards（供离线核对） */
+function snap(kind){
+  if(kind==='bud'){
+    const ox=randomOriginX(), oy=39, ty=SLOT_Y0;
+    const dx=TARGET_X-ox, dy=ty-oy;
+    const angle=-Math.atan2(dx,dy)*180/Math.PI;
+    const bud=document.createElement('div'); bud.className='bud2';
+    bud.style.transform=`translate(${TARGET_X-28}px,${ty-28}px) scale(1)`; goo.appendChild(bud);
+    const stem=document.createElement('div'); stem.className='stem2';
+    stem.style.height=Math.hypot(dx,dy)+'px';
+    stem.style.transform=`translate(${ox-5.5}px,${oy}px) rotate(${angle}deg) scaleY(1)`; goo.appendChild(stem);
+  }else if(kind==='circle'){
+    const ty=SLOT_Y0;
+    const r=document.createElement('div'); r.className='ring'; r.style.left=(TARGET_X-10)+'px'; r.style.top=(ty-10)+'px';
+    r.style.width='104px'; r.style.height='104px'; r.style.opacity='.45'; stage.appendChild(r);
+    const c=document.createElement('div'); c.className='bud2';
+    c.style.transform=`translate(${TARGET_X-28}px,${ty-28}px) scale(1)`; goo.appendChild(c);
+  }else if(kind==='cards'){
+    [0,1,2].forEach(s=>{
+      const color=TYPES[type].c;
+      const el=document.createElement('div'); el.className='card';
+      el.innerHTML=`<div class="ic">${iconSvg(TYPES[type].icon,color)}</div><div class="txt"><div class="t">${TYPES[type].name}</div></div><div class="acts"><button class="sn">稍后</button><button class="dn">完成</button></div>`;
+      const ty=SLOT_Y0+s*SLOT_H;
+      el.style.transform=`translate(${TARGET_X-112}px,${ty-27}px) scale(1)`;
+      el.style.borderRadius='16px'; el.style.opacity='1';
+      el.style.boxShadow=`0 0 22px 2px ${hexA(color,.4)},0 10px 26px -12px rgba(0,0,0,.6)`;
+      stage.appendChild(el);
+    });
+  }
+}
+const q=new URLSearchParams(location.search);
+if(q.get('snap')) snap(q.get('snap'));
+if(q.get('auto')){
+  const n=parseInt(q.get('auto'))||1;
+  setTimeout(()=>fireMany(n),150);
+}
+</script>
+</body>
+</html>

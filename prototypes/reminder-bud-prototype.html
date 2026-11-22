@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>WinIsle · 收起态提醒改版原型 · 细胞分裂</title>
+<style>
+  :root{
+    --ink:#1b1a16; --line:#e7e0d2; --paper:#f1ece1; --card:#fffdf7;
+    --mint:#0f8378; --mint2:#34d399;
+    --t-ink:#E9ECF2; --t-muted:#969EAF; --t-muted2:#6B7180; --t-accent:#34D399;
+    --c-water:#39C7FF; --c-amber:#E6B23C; --c-mint:#34D399; --c-coral:#F2705C;
+    --type:#39C7FF;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:50px 40px 70px}
+  .eyebrow{font-size:12px;letter-spacing:.2em;font-weight:800;color:var(--mint);display:flex;align-items:center;gap:9px}
+  .eyebrow::before{content:"";width:8px;height:8px;border-radius:50%;background:#12b39b;box-shadow:0 0 0 4px rgba(18,179,155,.16)}
+  h1{font-size:29px;margin:14px 0 10px;font-weight:800;letter-spacing:-.01em;line-height:1.25}
+  h1 em{font-style:normal;color:var(--mint)}
+  .sub{font-size:14px;color:#4b4a44;line-height:1.8;margin:0;max-width:930px}
+  .sub b{color:#1b1a16}
+  .sec{margin-top:40px}
+  .sechead{display:flex;align-items:baseline;gap:12px;margin:0 0 16px}
+  .sechead .n{font-size:12px;font-weight:800;color:#fff;background:var(--mint);width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;transform:translateY(2px)}
+  .sechead .t{font-size:16px;font-weight:800}
+  .sechead .d{font-size:12.5px;color:#8a8577}
+
+  .demo-bar{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:24px 0 8px;padding:12px 16px;border-radius:16px;
+    background:var(--card);border:1px solid var(--line);box-shadow:0 14px 30px -26px rgba(40,35,20,.5)}
+  .demo-bar .grp{display:flex;align-items:center;gap:9px}
+  .glab{font-size:12px;color:#8a8577;font-weight:600}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{border:1px solid var(--line);background:#fbf8ef;color:#7c7767;font-family:inherit;font-size:12px;font-weight:600;
+    padding:5px 11px;border-radius:99px;cursor:pointer;transition:.16s;display:inline-flex;align-items:center;gap:6px}
+  .chip:hover{background:#f3efe2}
+  .chip.on{background:linear-gradient(180deg,#12b39b,#0f8378);color:#fff;border-color:transparent;box-shadow:0 5px 12px -4px rgba(15,131,120,.5)}
+  .chip .dotc{width:7px;height:7px;border-radius:50%}
+  .tbtn{border:0;font-family:inherit;font-size:12.5px;font-weight:800;padding:8px 16px;border-radius:10px;cursor:pointer;transition:.16s}
+  .tbtn.fire{background:linear-gradient(180deg,#ffe07a,#f2bd3c);color:#3a2c00;box-shadow:0 8px 16px -8px rgba(220,170,40,.8)}
+  .tbtn.fire:active{transform:translateY(1px)}
+  .tbtn.reset{background:#efe9dc;color:#7c7767}
+  .hint{margin-left:auto;color:#a19c8e;font-size:11px;max-width:225px;line-height:1.5}
+
+  .live-wrap{display:flex;justify-content:center;padding:4px 0 0}
+  .livebox{width:680px;display:flex;justify-content:center}
+  .livebox>.scaler{transform:scale(1.12);transform-origin:top center}
+
+  .deskcol{position:relative;width:560px;height:156px;border-radius:18px;overflow:hidden;
+    background:radial-gradient(560px 180px at 50% -30%, rgba(57,199,255,.13), transparent 62%),
+               linear-gradient(180deg,#141a24,#0c1016);
+    box-shadow:0 24px 46px -30px rgba(10,20,30,.7)}
+  .deskcol::after{content:"模拟屏幕顶部";position:absolute;right:13px;bottom:9px;font-size:10.5px;color:rgba(255,255,255,.15)}
+
+  .pillwrap{position:absolute;left:50%;top:0;width:372px;height:156px;transform:translateX(-50%)}
+  .pill{position:relative;z-index:2;display:flex;align-items:center;gap:10px;height:36px;padding:0 14px;
+    background:linear-gradient(180deg,#20262f,#171c24);border:1px solid rgba(255,255,255,.09);border-top:0;
+    border-radius:0 0 17px 17px;color:#c6cfda;
+    box-shadow:0 10px 26px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.045);
+    transform-origin:50% 0;will-change:transform}
+  .eq{display:inline-flex;align-items:flex-end;gap:2.5px;height:14px;flex:0 0 auto}
+  .eq i{width:2.5px;background:var(--t-accent);border-radius:2px;animation:eq 1s ease-in-out infinite}
+  .eq i:nth-child(2){animation-delay:.25s}.eq i:nth-child(3){animation-delay:.5s}.eq i:nth-child(4){animation-delay:.15s}
+  @keyframes eq{0%,100%{height:4px}50%{height:14px}}
+  .marq{overflow:hidden;white-space:nowrap;flex:1 1 auto;min-width:0;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 10px,#000 calc(100% - 10px),transparent)}
+  .mrun{display:inline-flex;white-space:nowrap;animation:scrollx 11s linear infinite;font-size:12px;color:#b9c2ce}
+  .mrun span{padding-right:30px}
+  @keyframes scrollx{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+  .mtime{font-variant-numeric:tabular-nums;font-weight:800;color:#dfe6ef;flex:0 0 auto;font-size:12.5px}
+
+  /* 光扫过胶囊（触发瞬间的高光） */
+  .pill .sweep{position:absolute;inset:0;border-radius:inherit;overflow:hidden;pointer-events:none}
+  .pill .sweep::before{content:"";position:absolute;top:0;bottom:0;width:60px;left:-80px;
+    background:linear-gradient(100deg,transparent,rgba(180,230,255,.30),transparent);transform:skewX(-18deg);opacity:0}
+  .firing .pill .sweep::before{animation:sweep .55s ease .02s}
+  @keyframes sweep{0%{left:-80px;opacity:.9}100%{left:400px;opacity:0}}
+
+  /* 细胞质 goo 层 */
+  .goo{position:absolute;left:0;top:0;width:372px;height:156px;z-index:1;pointer-events:none;opacity:1;transition:opacity .18s ease;
+    filter:drop-shadow(0 0 12px color-mix(in srgb,var(--type) 32%,transparent))}
+  .goo circle{fill:#3a4757;stroke:var(--type);stroke-opacity:.22;stroke-width:1.4}
+  #pill .marq{flex:0 1 128px;max-width:128px}
+
+  /* 最终迷你卡 */
+  .bud{position:absolute;right:6px;top:66px;width:224px;height:54px;border-radius:16px;z-index:3;
+    background:linear-gradient(180deg,#252b35,#1a1f27);border:1px solid rgba(255,255,255,.12);
+    opacity:0;transform:scale(.18);transform-origin:50% 50%;pointer-events:none;overflow:hidden;
+    will-change:transform,opacity;filter:drop-shadow(0 6px 16px rgba(0,0,0,.5))}
+  .bud.ready{opacity:1;transform:scale(1);pointer-events:auto;transition:transform .42s cubic-bezier(.34,1.55,.5,1),opacity .16s ease}
+  .bud.retracting{opacity:0;transform:translate(-6px,-30px) scale(.12);transition:transform .34s cubic-bezier(.55,.02,.75,.45),opacity .3s ease .06s}
+  .bin{position:relative;z-index:2;display:flex;align-items:center;gap:8px;height:100%;padding:0 9px}
+  .bic{flex:0 0 auto;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--type) 20%,#20242c);position:relative;opacity:1}
+  .bic::after{content:"";position:absolute;inset:-2px;border-radius:11px;border:1.4px solid var(--type);opacity:.4;
+    animation:ringp 2.2s ease-out infinite}
+  @keyframes ringp{0%{transform:scale(.92);opacity:.5}72%{transform:scale(1.24);opacity:0}100%{opacity:0}}
+  .bmain{flex:1 1 auto;min-width:0}
+  .bt{font-size:12.5px;font-weight:800;color:#eef5fd;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bacts{display:flex;gap:6px;flex:0 0 auto}
+  .abtn{border:0;font-family:inherit;font-weight:800;border-radius:8px;cursor:pointer;line-height:1;height:26px;padding:0 10px;font-size:10.5px;transition:.15s}
+  .abtn.ghost{background:rgba(255,255,255,.09);color:#cfd7e2}
+  .abtn.ghost:hover{background:rgba(255,255,255,.18)}
+  .abtn.solid{background:var(--type);color:#08251d;box-shadow:0 2px 8px -3px color-mix(in srgb,var(--type) 70%,transparent)}
+  .abtn.solid:hover{filter:brightness(1.06)}
+
+  /* 卡面光泽扫过 */
+  .sheen{position:absolute;inset:0;border-radius:16px;overflow:hidden;pointer-events:none;z-index:1}
+  .sheen::before{content:"";position:absolute;top:-40%;bottom:-40%;width:52px;left:-70px;
+    background:linear-gradient(100deg,transparent,rgba(255,255,255,.22),transparent);transform:skewX(-20deg);opacity:0}
+  .bud.ready .sheen::before{animation:sheen .7s ease .18s}
+  @keyframes sheen{0%{left:-70px;opacity:0}30%{opacity:.8}100%{left:260px;opacity:0}}
+
+  /* 呼吸光晕 + 轻微浮动 */
+  .bud.ready{animation:breathe 1.1s ease-in-out infinite}
+  @keyframes breathe{
+    0%,100%{box-shadow:0 0 10px -3px color-mix(in srgb,var(--type) 30%,transparent), inset 0 0 0 transparent}
+    50%{box-shadow:0 0 30px 2px color-mix(in srgb,var(--type) 52%,transparent), inset 0 0 16px -9px color-mix(in srgb,var(--type) 70%,transparent)}}
+  .bud .bin{animation:floaty 2.6s ease-in-out infinite}
+  @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.4px)}}
+
+  /* 粒子 / 冲击波 */
+  .fx{position:absolute;left:0;top:0;width:372px;height:156px;z-index:4;pointer-events:none}
+  .spark{position:absolute;width:4px;height:4px;border-radius:50%;background:var(--type);opacity:.9;
+    box-shadow:0 0 8px color-mix(in srgb,var(--type) 70%,transparent)}
+  .wave{position:absolute;border:1.6px solid color-mix(in srgb,var(--type) 70%,transparent);border-radius:50%;opacity:0}
+  .droplet{position:absolute;border-radius:50%;background:var(--type);opacity:.55;filter:blur(.4px)}
+
+  /* 红点 */
+  .dot{position:absolute;right:6px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--c-coral);
+    box-shadow:0 0 8px var(--c-coral);opacity:0;transition:.2s;z-index:5}
+  .showdot .dot{opacity:1;animation:pulse 1.8s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.45;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+
+  /* 故事板 */
+  .story{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .shot{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:12px;box-shadow:0 16px 32px -30px rgba(40,35,20,.5)}
+  .shot .frame{position:relative;width:236px;height:132px;margin:0 auto;border-radius:12px;overflow:hidden;
+    background:radial-gradient(280px 120px at 50% -30%, rgba(57,199,255,.12), transparent 62%),linear-gradient(180deg,#141a24,#0c1016)}
+  .shot .cap2{margin-top:10px;display:flex;align-items:center;gap:7px}
+  .shot .cap2 .kk{font-size:10.5px;font-weight:800;color:var(--mint);background:rgba(18,179,155,.12);padding:2px 7px;border-radius:99px}
+  .shot .cap2 .tt{font-size:12px;font-weight:800}
+  .shot .dd{font-size:11px;color:#8a8577;line-height:1.55;margin-top:5px}
+  .mini-pill{position:absolute;left:50%;top:0;transform:translateX(-50%);height:26px;width:238px;border-radius:0 0 12px 12px;
+    background:linear-gradient(180deg,#20262f,#171c24);border:1px solid rgba(255,255,255,.08);border-top:0;
+    display:flex;align-items:center;gap:6px;padding:0 9px;color:#c6cfda}
+  .mini-pill .eq{height:10px}.mini-pill .eq i{width:2px}
+  .mini-pill .t{font-size:9px;color:#aab3bf;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .mini-pill .tm{font-size:9.5px;font-weight:800;color:#dfe6ef}
+  .mini-card{position:absolute;right:5px;top:32px;width:186px;height:42px;border-radius:11px;z-index:2;
+    background:linear-gradient(180deg,#242a34,#1a1f27);border:1px solid rgba(255,255,255,.12);
+    display:flex;align-items:center;gap:6px;padding:0 6px;box-shadow:0 0 22px -2px color-mix(in srgb,var(--type) 50%, transparent)}
+  .mini-card .bi{width:24px;height:24px;border-radius:8px;background:color-mix(in srgb,var(--type) 20%, #20242c);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .mini-card .bn{font-size:9px;font-weight:800;color:#eef5fd;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini-card .ba{display:flex;gap:4px;flex:0 0 auto}
+  .mini-card .ba span{font-size:7px;font-weight:800;padding:3px 4px;border-radius:5px;background:rgba(255,255,255,.10);color:#cfd7e2}
+  .mini-card .ba span.s{background:var(--type);color:#08251d}
+  .blob{position:absolute;right:14px;top:26px;width:30px;height:30px;border-radius:50%;
+    background:linear-gradient(180deg,#242a34,#1a1f27);border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 0 16px -2px color-mix(in srgb,var(--type) 40%, transparent)}
+  .blob::after{content:"";position:absolute;left:-7px;top:8px;width:11px;height:14px;border-radius:6px;background:#20262f;opacity:.9}
+  .shot .dot{top:4px;right:4px}
+
+  .notes{columns:2;column-gap:28px}
+  .note{break-inside:avoid;margin:0 0 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .note h4{margin:0 0 6px;font-size:13px;font-weight:800}
+  .note h4 span{color:var(--mint)}
+  .note p{margin:0;font-size:12.5px;color:#5b5749;line-height:1.7}
+  .note code{background:#efe9dc;border-radius:5px;padding:1px 5px;font-size:11.5px;color:#5c4b1f}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">WinIsle · 计划提醒 · 收起态改版</div>
+  <h1>从岛里「分裂」出一枚<span style="color:var(--mint)">迷你提醒</span></h1>
+  <p class="sub">收起态<b>不再用横幅覆盖胶囊</b>：保留音乐/天气，从胶囊右下角<b>出芽</b>——细胞质被拉成薄膜细颈、断开分离成一枚只显示名称的迷你提醒，落在右下角。整段用弹簧物理 + SVG goo 融合渲染，配合光扫、冲击波、粒子、光泽扫过与 1.1s 呼吸光晕。</p>
+
+  <div class="demo-bar">
+    <div class="grp"><span class="glab">提醒类型</span>
+      <div class="chips" id="chips">
+        <button class="chip on" data-k="water"><i class="dotc" style="background:var(--c-water)"></i>喝水</button>
+        <button class="chip" data-k="sit"><i class="dotc" style="background:var(--c-amber)"></i>久坐</button>
+        <button class="chip" data-k="eye"><i class="dotc" style="background:var(--c-mint)"></i>护眼</button>
+      </div>
+    </div>
+    <button class="tbtn fire" id="fireBtn">⚡ 触发到点提醒</button>
+    <button class="tbtn reset" id="resetBtn">重置</button>
+    <span class="hint" id="hint">点「触发」：小泡出芽 → 牵膜 → 分离。</span>
+  </div>
+
+  <div class="live-wrap"><div class="livebox"><div class="scaler">
+    <div class="deskcol">
+      <div class="pillwrap" id="pillwrap">
+        <div class="pill" id="pill">
+          <span class="eq"><i></i><i></i><i></i><i></i></span>
+          <span class="marq"><span class="mrun"><span>风继续吹 · 张国荣</span><span>风继续吹 · 张国荣</span></span></span>
+          <span class="mtime">21:58</span>
+          <span class="sweep"></span>
+        </div>
+        <svg class="goo" id="goo" viewBox="0 0 372 156" width="372" height="156">
+          <defs>
+            <filter id="gooF" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="6.5" result="b"/>
+              <feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -10" result="g"/>
+              <feComposite in="g" in2="b" operator="over"/>
+            </filter>
+          </defs>
+          <g filter="url(#gooF)">
+            <circle id="cA" cx="362" cy="36" r="10" fill="#20262f"/>
+            <circle id="cB" cx="362" cy="36" r="4" fill="#20262f"/>
+            <circle id="b1" cx="362" cy="36" r="0" fill="#20262f"/>
+            <circle id="b2" cx="362" cy="36" r="0" fill="#20262f"/>
+            <circle id="b3" cx="362" cy="36" r="0" fill="#20262f"/>
+            <circle id="b4" cx="362" cy="36" r="0" fill="#20262f"/>
+            <circle id="b5" cx="362" cy="36" r="0" fill="#20262f"/>
+          </g>
+        </svg>
+        <div class="fx" id="fx"></div>
+        <div class="bud" id="bud">
+          <div class="bin">
+            <span class="bic" id="bic"></span>
+            <div class="bmain"><div class="bt" id="bt">喝水时间到</div></div>
+            <div class="bacts">
+              <button class="abtn ghost" id="snoozeBtn">稍后</button>
+              <button class="abtn solid" id="doneBtn">完成</button>
+            </div>
+          </div>
+          <span class="sheen"></span>
+        </div>
+        <span class="dot"></span>
+      </div>
+    </div>
+  </div></div></div>
+
+  <div class="sec">
+    <div class="sechead"><span class="n">1</span><span class="t">五个关键帧</span><span class="d">蓄力 → 出芽 → 牵膜 → 分离 → 归位</span></div>
+    <div class="story">
+      <div class="shot"><div class="frame">
+        <div class="mini-pill"><span class="eq"><i></i><i></i><i></i><i></i></span><span class="t">风继续吹 · 张国荣</span><span class="tm">21:58</span></div>
+      </div><div class="cap2"><span class="kk">A</span><span class="tt">待命</span></div><div class="dd">音乐胶囊照常播放，右下角无遮挡。</div></div>
+
+      <div class="shot"><div class="frame">
+        <div class="mini-pill"><span class="eq"><i></i><i></i><i></i><i></i></span><span class="t">风继续吹 · 张国荣</span><span class="tm">21:58</span></div>
+        <div class="blob"></div>
+      </div><div class="cap2"><span class="kk">B</span><span class="tt">出芽</span></div><div class="dd">胶囊微微挤压发光，右下角鼓出小泡。</div></div>
+
+      <div class="shot"><div class="frame">
+        <div class="mini-pill"><span class="eq"><i></i><i></i><i></i><i></i></span><span class="t">风继续吹 · 张国荣</span><span class="tm">21:58</span></div>
+        <div class="mini-card">
+          <span class="bi" id="sbi"></span><span class="bn">喝水时间到</span>
+          <span class="ba"><span>稍后</span><span class="s">完成</span></span>
+        </div>
+      </div><div class="cap2"><span class="kk">C</span><span class="tt">分离成型</span></div><div class="dd">落到右下角：名称 + 呼吸光晕 + 两按钮。</div></div>
+
+      <div class="shot"><div class="frame">
+        <div class="mini-pill"><span class="eq"><i></i><i></i><i></i><i></i></span><span class="t">风继续吹 · 张国荣</span><span class="tm">21:58</span></div>
+        <div style="position:absolute;right:26px;top:44px;width:46px;height:46px;border-radius:50%;border:2px solid color-mix(in srgb,var(--type) 60%,transparent);opacity:.7"></div>
+        <span class="dot"></span>
+      </div><div class="cap2"><span class="kk">D</span><span class="tt">归位</span></div><div class="dd">完成后融合收回，岛右上角留小红点。</div></div>
+
+      <div class="shot"><div class="frame">
+        <div class="mini-pill" style="box-shadow:0 0 0 2px color-mix(in srgb,var(--type) 30%,transparent)"><span class="eq"><i></i><i></i><i></i><i></i></span><span class="t">风继续吹 · 张国荣</span><span class="tm">21:58</span></div>
+        <div class="mini-card" style="top:34px;right:8px;width:176px;box-shadow:0 0 30px 2px color-mix(in srgb,var(--type) 55%, transparent)">
+          <span class="bi" id="sbi2"></span><span class="bn">远眺放松眼睛</span><span class="ba"><span class="s">完成</span></span></div>
+      </div><div class="cap2"><span class="kk">E</span><span class="tt">常驻呼吸</span></div><div class="dd">不点就一直呼吸常驻，类型色随提醒变化。</div></div>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sechead"><span class="n">2</span><span class="t">特效与动效细节</span><span class="d">让它“丝滑”的 8 个手段</span></div>
+    <div class="notes">
+      <div class="note"><h4>① 弹簧物理，不是线性关键帧</h4><p>位置/半径用 <code>stiffness≈150 · damping≈14</code> 的弹簧逐帧积分，带自然回弹与过冲，收尾不僵硬。</p></div>
+      <div class="note"><h4>② SVG goo 融合</h4><p>两个圆经 <code>feGaussianBlur + feColorMatrix</code> 阈值合成“细胞质”，距离拉开时自动拉出细颈、再自然断开，无需手画路径。</p></div>
+      <div class="note"><h4>③ 胶囊蓄力</h4><p>触发瞬间胶囊轻微纵向挤压（<code>scaleY .9→1.03→1</code>）+ 一道高光快速扫过。</p></div>
+      <div class="note"><h4>④ 分离冲击波</h4><p>断开的一刻，在分离点扩散一圈冲击波环（0.4→2.6 倍、淡出 520ms）。</p></div>
+      <div class="note"><h4>⑤ 粒子迸发 + 回落</h4><p>8~12 颗类型色微粒沿径向迸出再受重力回落淡出；完成时粒子反向流回胶囊。</p></div>
+      <div class="note"><h4>⑥ 卡面光泽扫过</h4><p>迷你卡定型后一道斜向高光从左侧扫过（<code>.7s</code>），质感更“实”。</p></div>
+      <div class="note"><h4>⑦ 呼吸 + 浮动</h4><p>1.1s 呼吸光晕（<code>10px↔30px</code>）+ 2.6s 上下浮动 1.4px，让静止态也有生命感；图标外圈持续扩散环。</p></div>
+      <div class="note"><h4>⑧ 可打断</h4><p>任何时刻再次触发/点按钮都会平滑接管：正在出芽则从中途弹簧目标改向，正在收回则重新拉出，绝不硬切。</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const TYPES = {
+    water:{name:'喝水时间到', color:'#39C7FF', icon:'drop'},
+    sit:{name:'起来活动一下', color:'#E6B23C', icon:'chair'},
+    eye:{name:'远眺放松眼睛', color:'#34D399', icon:'eye'}
+  };
+  const svg = {
+    drop:(c)=>`<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3.2c3.3 3.7 5.4 6.4 5.4 9.1a5.4 5.4 0 0 1-10.8 0c0-2.7 2.1-5.4 5.4-9.1Z" stroke="${c}" stroke-width="1.7" stroke-linejoin="round"/></svg>`,
+    chair:(c)=>`<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M7 4v9h10V4M6 13h12M8 13v7M16 13v7" stroke="${c}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    eye:(c)=>`<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 12c2.6-3.6 5.6-5.4 9-5.4s6.4 1.8 9 5.4c-2.6 3.6-5.6 5.4-9 5.4S5.6 15.6 3 12Z" stroke="${c}" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.4" fill="${c}"/></svg>`
+  };
+  let cur='water';
+  const $ = id=>document.getElementById(id);
+  const wrap=$('pillwrap'), pill=$('pill'), goo=$('goo'), cA=$('cA'), cB=$('cB'),
+        bud=$('bud'), bic=$('bic'), bt=$('bt'), fx=$('fx'), hint=$('hint');
+
+  function applyType(k){
+    cur=k; const t=TYPES[k];
+    document.documentElement.style.setProperty('--type',t.color);
+    bt.textContent=t.name; bic.innerHTML=svg[t.icon](t.color);
+    const s1=$('sbi'), s2=$('sbi2'); if(s1)s1.innerHTML=svg[t.icon](t.color); if(s2)s2.innerHTML=svg[t.icon](t.color);
+    document.querySelectorAll('#chips .chip').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+  }
+
+  /* ---------- 弹簧 ---------- */
+  function Spring(v,k,c){this.v=v;this.t=v;this.vel=0;this.k=k||150;this.c=c||14;}
+  Spring.prototype.step=function(dt){
+    const a=this.k*(this.t-this.v)-this.c*this.vel;
+    this.vel+=a*dt; this.v+=this.vel*dt; return this.v;
+  };
+  const S={x:362,y:36,r:4,rA:10};
+  const sp={x:new Spring(362,150,15),y:new Spring(36,150,15),r:new Spring(4,180,16)};
+
+  const CARD={left:372-6-224, top:66, w:224, h:54};
+  const SRC={x:362,y:36}, DST={x:CARD.left+CARD.w/2, y:CARD.top+CARD.h/2};
+
+  let state='idle', raf=0, running=false;
+  const br=[1,2,3,4,5].map(i=>document.getElementById('b'+i));
+  function updateBridges(){
+    const dx=S.x-SRC.x, dy=S.y-SRC.y, d=Math.hypot(dx,dy);
+    // 只有在出芽/牵膜阶段且两团有距离时才拉出细颈
+    const on = (state==='budding' && d>18);
+    for(let i=0;i<5;i++){
+      const t=(i+1)/6;
+      const x=SRC.x+dx*t, y=SRC.y+dy*t;
+      // 颈身更细：中间取最小，两端稍粗，形成平滑牵膜
+      const r = on ? Math.max(3.2, Math.min(S.r, 13) * (0.42 + 0.34*Math.sin(Math.PI*t))) : 0;
+      br[i].setAttribute('cx',x); br[i].setAttribute('cy',y); br[i].setAttribute('r',r);
+    }
+  }
+
+  function spawnSpark(x,y,opts){
+    const d=document.createElement('span'); d.className='spark';
+    d.style.left=x+'px'; d.style.top=y+'px'; d.style.background=opts.color||getComputedStyle(document.documentElement).getPropertyValue('--type');
+    if(opts.size) d.style.width=d.style.height=opts.size+'px';
+    fx.appendChild(d);
+    const dx=(Math.random()-.5)*2*opts.dist, dy=(Math.random()-.5)*2*opts.dist - (opts.up||0);
+    const dur=opts.dur||600;
+    d.animate([{transform:'translate(0,0) scale(1)',opacity:.95},
+               {transform:`translate(${dx}px,${dy}px) scale(.2)`,opacity:0}],
+              {duration:dur,easing:'cubic-bezier(.2,.7,.3,1)'});
+    setTimeout(()=>d.remove(),dur+40);
+  }
+  function burst(cx,cy){
+    for(let i=0;i<12;i++){
+      const a=Math.random()*Math.PI*2, dist=18+Math.random()*46;
+      spawnSpark(cx,cy,{dist:dist/2,size:3+Math.random()*3,dur:520+Math.random()*260});
+    }
+    const ring=document.createElement('span'); ring.className='wave';
+    ring.style.left=(cx-14)+'px'; ring.style.top=(cy-14)+'px'; ring.style.width='28px'; ring.style.height='28px';
+    fx.appendChild(ring);
+    ring.animate([{transform:'scale(.4)',opacity:.75},{transform:'scale(2.8)',opacity:0}],{duration:520,easing:'cubic-bezier(.2,.7,.3,1)'});
+    setTimeout(()=>ring.remove(),560);
+  }
+  function droplet(from,to,dur){
+    const d=document.createElement('span'); d.className='droplet';
+    d.style.width=d.style.height='5px'; d.style.left=(from.x-2.5)+'px'; d.style.top=(from.y-2.5)+'px';
+    fx.appendChild(d);
+    const mx=(from.x+to.x)/2, my=Math.min(from.y,to.y)-30;
+    const dur2=dur||680;
+    d.animate([{transform:'translate(0,0) scale(1)',opacity:.7},
+               {transform:`translate(${mx-from.x}px,${my-from.y}px) scale(.8)`,opacity:.85,offset:.5},
+               {transform:`translate(${to.x-from.x}px,${to.y-from.y}px) scale(.2)`,opacity:0}],
+              {duration:dur2,easing:'cubic-bezier(.4,0,.5,1)'});
+    setTimeout(()=>d.remove(),dur2+40);
+  }
+
+  function setBudVisible(v){ bud.classList.toggle('ready',v); }
+  function split(){
+    // 断开：冲击波 + 粒子 + 卡片弹出
+    burst(S.x,S.y);
+    goo.style.opacity='0';
+    bud.classList.remove('retracting'); setBudVisible(true);
+    hint.textContent='分离完成 —— 不点「完成」就会一直呼吸常驻。';
+    state='shown';
+  }
+  function loop(t){
+    if(!running) return;
+    const dt=Math.min(1/45, (t-(loop.last||t))/1000) || 1/60; loop.last=t;
+    for(let i=0;i<3;i++){ sp.x.step(dt/3); sp.y.step(dt/3); sp.r.step(dt/3); }
+    S.x=sp.x.v; S.y=sp.y.v; S.r=Math.max(2,sp.r.v);
+    cB.setAttribute('cx',S.x); cB.setAttribute('cy',S.y); cB.setAttribute('r',S.r);
+    updateBridges();
+    if(state==='budding'){
+      const dx=S.x-SRC.x, dy=S.y-SRC.y, d=Math.hypot(dx,dy);
+      if(d > 92){ split(); }
+    }
+    // 稳定后停止
+    if(state==='shown' && Math.abs(sp.x.vel)<2 && Math.abs(sp.y.vel)<2) { running=false; return; }
+    raf=requestAnimationFrame(loop);
+  }
+
+  function fire(){
+    applyType(cur);
+    closeTimers();
+    clearFx();
+    wrap.classList.remove('retracting','showdot');
+    wrap.classList.add('firing');
+    state='budding'; running=true; loop.last=0;
+    bud.classList.remove('ready','retracting');
+    goo.style.opacity='1';
+    // 起始在原点
+    Object.assign(sp.x,{v:SRC.x,t:DST.x,vel:0});
+    Object.assign(sp.y,{v:SRC.y,t:DST.y,vel:0});
+    Object.assign(sp.r,{v:4,t:28,vel:0});
+    cB.setAttribute('cx',SRC.x);cB.setAttribute('cy',SRC.y);cB.setAttribute('r',4);
+    // 蓄力时喷几颗小液滴
+    for(let i=0;i<3;i++) setTimeout(()=>dropkick(SRC.x,SRC.y),60+i*90);
+    hint.textContent='出芽中：细胞质正被拉成薄膜细颈…';
+    requestAnimationFrame(loop);
+  }
+  function dropkick(x,y){ spawnSpark(x,y,{dist:10,size:3,dur:500}); }
+
+  function retract(dot){
+    state='retracting';
+    bud.classList.remove('ready'); bud.classList.add('retracting');
+    // 粒子回收
+    const cr={x:CARD.left+CARD.w/2,y:CARD.top+CARD.h/2};
+    for(let i=0;i<8;i++) setTimeout(()=>droplet(cr,SRC,640+Math.random()*200),i*30);
+    setTimeout(()=>{
+      wrap.classList.remove('firing');
+      bud.classList.remove('retracting');
+      goo.style.opacity='1';
+      if(dot) wrap.classList.add('showdot');
+      state='idle';
+    },380);
+  }
+
+  let timers=[];
+  function closeTimers(){ timers.forEach(clearTimeout); timers=[]; }
+  function clearFx(){ fx.innerHTML=''; }
+
+  $('fireBtn').addEventListener('click',fire);
+  $('resetBtn').addEventListener('click',()=>{ closeTimers(); running=false; cancelAnimationFrame(raf); clearFx();
+    wrap.classList.remove('firing','retracting','showdot'); bud.classList.remove('ready','retracting');
+    goo.style.opacity='1'; state='idle'; hint.textContent='已重置。点「触发」看细胞分裂。'; });
+  $('doneBtn').addEventListener('click',e=>{ e.stopPropagation(); retract(true); hint.textContent='已完成 —— 迷你提醒融合收回岛里，右上角留小红点。'; });
+  $('snoozeBtn').addEventListener('click',e=>{ e.stopPropagation(); retract(false); hint.textContent='已稍后 10 分钟 —— 收回，10 分钟后再出芽。';
+    timers.push(setTimeout(()=>{ if(state==='idle') fire(); },2400)); });
+
+  document.querySelectorAll('#chips .chip').forEach(b=>b.addEventListener('click',()=>applyType(b.dataset.k)));
+  applyType('water');
+  // 静态快照模式（无头截图用）：?snap=mid|ready|dot
+  function snap(kind){
+    running=false; cancelAnimationFrame(raf); clearFx();
+    wrap.classList.add('firing'); wrap.classList.remove('showdot','retracting');
+    bud.classList.remove('retracting');
+    function setC(x,y,r){S.x=x;S.y=y;S.r=r;cB.setAttribute('cx',x);cB.setAttribute('cy',y);cB.setAttribute('r',r);updateBridges();}
+    if(kind==='mid'){
+      state='budding'; goo.style.opacity='1'; bud.classList.remove('ready');
+      setC(300,78,20); wrap.classList.remove('showdot');
+      hint.textContent='出芽中：细胞质正被拉成薄膜细颈…';
+    } else if(kind==='ready'){
+      state='shown'; goo.style.opacity='0'; setC(DST.x,DST.y,26); bud.classList.add('ready');
+      hint.textContent='分离完成 —— 不点「完成」就会一直呼吸常驻。';
+    } else if(kind==='dot'){
+      state='idle'; goo.style.opacity='1'; setC(SRC.x,SRC.y,10); bud.classList.remove('ready');
+      wrap.classList.add('showdot'); wrap.classList.remove('firing');
+      hint.textContent='已完成 —— 迷你提醒融合收回岛里，右上角留小红点。';
+    }
+  }
+  const _snap=new URLSearchParams(location.search).get('snap');
+  if(_snap) setTimeout(()=>snap(_snap),120);
+  else if(location.search.indexOf('fire')>=0) setTimeout(fire,220);
+</script>
+</body>
+</html>
