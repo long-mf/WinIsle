@@ -1459,10 +1459,9 @@ struct IslandApp {
     /// 
     /// ointer 
     todo_addrow_hover: bool,
+    /// 调试用：FAKE_DELETE 仅删除一次
+    todo_fake_deleted: bool,
     /// ?+ egui time?
-    todo_undo: Option<Todo>,
-    todo_undo_until: f64,
-    todo_undo_pos: usize,
     /// / 
     todo_scroll: f32,
     todo_scroll_target: f32,
@@ -1792,9 +1791,7 @@ let (r, cov, settled) = if light {
             todo_focus_tries: 0,
             todo_was_focused: false,
             todo_addrow_hover: false,
-            todo_undo: None,
-            todo_undo_until: 0.0,
-            todo_undo_pos: 0,
+            todo_fake_deleted: false,
             todo_scroll: 0.0,
             todo_scroll_target: 0.0,
             todo_scroll_vis: 0.0,
@@ -2011,19 +2008,6 @@ if std::env::var_os("WINISLE_REMIND_DOT").is_some() {
             app.todo_debug_edit = true;
             app.todo_input = "验证连续添加".to_string();
             app.todo_was_focused = true;
-        }
-        //  + 
-        if std::env::var_os("WINISLE_TODO_UNDO_SHOW").is_some() {
-            app.todo_undo = Some(Todo {
-                id: 0,
-                title: "整理会败纯?".to_string(),
-                done: false,
-                archived: false,
-                created: "2026-11-21".to_string(),
-                done_seq: 0,
-            });
-            app.todo_undo_until = 1.0e9;
-            app.todo_undo_pos = 0;
         }
         app
     }
@@ -5709,7 +5693,7 @@ if self.show_rail_update() {
                 let tw = 34.0;
                 let th = 18.0;
                 // 6px
-                let tr = egui::Rect::from_min_size(egui::pos2(x1 - 16.0 - tw, *y + row_h * 0.5 - th * 0.5), egui::vec2(tw, th));
+                let tr = egui::Rect::from_min_size(egui::pos2(x1 - 4.0 - tw, *y + row_h * 0.5 - th * 0.5), egui::vec2(tw, th));
                 // 
                 let mut trash_rect = egui::Rect::from_min_size(egui::pos2(tr.left() - 30.0, *y + row_h * 0.5 - 10.0), egui::vec2(20.0, 20.0));
                 if r.custom {
@@ -7338,14 +7322,9 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         }
 
         // ---- ?----
-        let now_t = ui.input(|i| i.time);
-        let undo_active = self.todo_undo.is_some() && now_t < self.todo_undo_until;
-        if self.todo_undo.is_some() && !undo_active {
-            self.todo_undo = None;
-        }
         let show_add = self.todo_tab == 0 && self.todo_filter != 2;
         // 
-        let reserve_bottom = show_add || undo_active;
+        let reserve_bottom = show_add;
         let add_h = 28.0f32;
         let add_gap = 7.0f32;
         let addrow_bottom = rect.bottom() - CONTENT_PAD_B;
@@ -7610,52 +7589,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         }
 
         // ---- ?----
-        if undo_active {
-            let urect = egui::Rect::from_min_max(
-                egui::pos2(x0, addrow_top),
-                egui::pos2(x1, addrow_bottom),
-            );
-            painter.rect_stroke(urect, 9.0, egui::Stroke::new(1.0, white(0.10)), egui::StrokeKind::Inside);
-            let title = self.todo_undo.as_ref().map(|t| t.title.clone()).unwrap_or_default();
-            let label = format!("已删除「{}」", title);
-            let uw = text_w(ui, "撤销", bold_font(10.5)) + 16.0;
-            let shown = fit_text(ui, &label, bold_font(11.0), (x1 - x0) - uw - 28.0);
-            painter.text(
-                egui::pos2(x0 + 12.0, addrow_top + add_h * 0.5),
-                egui::Align2::LEFT_CENTER,
-                shown,
-                bold_font(11.0),
-                muted2,
-            );
-            let irect = egui::Rect::from_min_size(
-                egui::pos2(x1 - uw - 4.0, addrow_top + 4.0),
-                egui::vec2(uw, add_h - 8.0),
-            );
-            let uhov = interactive
-                && (ui.rect_contains_pointer(irect)
-                    || std::env::var_os("WINISLE_TODO_UNDO_HOVER").is_some());
-            painter.text(
-                irect.center(),
-                egui::Align2::CENTER_CENTER,
-                "撤销",
-                bold_font(10.5),
-                if uhov { accent } else { muted },
-            );
-            if interactive {
-                let ur = ui
-                    .interact(irect, ui.id().with("todo_undo"), egui::Sense::click())
-                    .on_hover_cursor(egui::CursorIcon::PointingHand);
-                if ur.clicked() {
-                    if let Some(t) = self.todo_undo.take() {
-                        let at = self.todo_undo_pos.min(self.todos.len());
-                        self.todos.insert(at, t);
-                        save_todos(&self.todos);
-                    }
-                }
-            }
-            //  5 
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(150));
-        } else if show_add {
+        if show_add {
             let add_rect = egui::Rect::from_min_max(
                 egui::pos2(x0, addrow_top),
                 egui::pos2(x1, addrow_bottom),
@@ -7946,19 +7880,16 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         // 
         if std::env::var_os("WINISLE_TODO_FAKE_DELETE").is_some()
             && delete_id.is_none()
-            && self.todo_undo.is_none()
+            && !self.todo_fake_deleted
         {
+            self.todo_fake_deleted = true;
             if let Some(first) = self.todos.iter().find(|t| !t.archived) {
                 delete_id = Some(first.id);
             }
         }
         if let Some(id) = delete_id {
             if let Some(pos) = self.todos.iter().position(|t| t.id == id) {
-                let removed = self.todos.remove(pos);
-                let now = ui.input(|i| i.time);
-                self.todo_undo = Some(removed);
-                self.todo_undo_until = now + 5.0;
-                self.todo_undo_pos = pos;
+                self.todos.remove(pos);
                 dirty = true;
             }
         }
