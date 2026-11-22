@@ -5696,7 +5696,7 @@ if self.show_rail_update() {
                 let tw = 34.0;
                 let th = 18.0;
                 // 6px
-                let tr = egui::Rect::from_min_size(egui::pos2(x1 - 10.0 - tw, *y + row_h * 0.5 - th * 0.5), egui::vec2(tw, th));
+                let tr = egui::Rect::from_min_size(egui::pos2(x1 - 12.0 - tw, *y + row_h * 0.5 - th * 0.5), egui::vec2(tw, th));
                 // 
                 let mut trash_rect = egui::Rect::from_min_size(egui::pos2(tr.left() - 30.0, *y + row_h * 0.5 - 10.0), egui::vec2(20.0, 20.0));
                 if r.custom {
