@@ -3320,9 +3320,14 @@ if self.hwnd == 0 {
                 // 采样胶囊外侧一点壁纸亮度：浅色背景用更深的描边 + 暗底衬，保证呼吸可见
                 let ppp = ui.ctx().pixels_per_point();
                 let wr = platform::window_rect(self.hwnd);
-                let sx = wr.0 + ((pill.left() - 7.0) * ppp) as i32;
+                // 关键：探测点必须落在胶囊外侧的「空白侧」。
+                // 左侧吸附时胶囊贴屏幕左边，pill.left()-7 会在屏幕外被 clamp 到 0，采样到的其实是自己的深色胶囊，
+                // 于是浅色壁纸被误判成深色、走了暗色低透明度光晕，看起来「不呼吸」。改到右侧空白处采样即可。
+                let probe_x = if pill.left() >= 7.0 { pill.left() - 7.0 } else { pill.right() + 7.0 };
+                let sx = wr.0 + (probe_x * ppp) as i32;
                 let sy = wr.1 + ((pill.center().y) * ppp) as i32;
-                let lum = platform::screen_luminance_at(sx.max(0), sy.max(0));
+                let lum_force = std::env::var("WINISLE_GLOW_LUM").ok().and_then(|v| v.parse::<f32>().ok());
+                let lum = lum_force.unwrap_or_else(|| platform::screen_luminance_at(sx.max(0), sy.max(0)));
                 let light_bg = lum > 0.62;
                 let cc: [u8; 3] = col;
                 let boost = 1.0f32;
