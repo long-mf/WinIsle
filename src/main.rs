@@ -5675,8 +5675,11 @@ if self.show_rail_update() {
                 let irect = egui::Rect::from_center_size(egui::pos2(x0 + 15.0, *y + row_h * 0.5), egui::vec2(24.0, 24.0));
                 cp.rect_filled(irect, 8.0, egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], (a as f32 * 0.16) as u8));
                 Self::draw_remind_icon(cp, r.icon, irect.center(), 16.0, cc, 1.4);
-                cp.text(egui::pos2(x0 + 34.0, *y + row_h * 0.5 - 7.0), egui::Align2::LEFT_CENTER, &r.name, bold_font(12.5), ink);
-                cp.text(egui::pos2(x0 + 34.0, *y + row_h * 0.5 + 8.0), egui::Align2::LEFT_CENTER, &r.sub, egui::FontId::proportional(9.5), muted2);
+                let name_dy = if r.repeat { -7.0 } else { 0.0 };
+                cp.text(egui::pos2(x0 + 34.0, *y + row_h * 0.5 + name_dy), egui::Align2::LEFT_CENTER, &r.name, bold_font(12.5), ink);
+                if r.repeat {
+                    cp.text(egui::pos2(x0 + 34.0, *y + row_h * 0.5 + 8.0), egui::Align2::LEFT_CENTER, &r.sub, egui::FontId::proportional(9.5), muted2);
+                }
                 //  / 
                 {
                     let name_w = ui.fonts(|f| f.layout_no_wrap(r.name.clone(), bold_font(12.5), ink).size().x);
@@ -5684,7 +5687,7 @@ if self.show_rail_update() {
                     let tag_col = if r.repeat { accent } else { egui::Color32::from_rgba_unmultiplied(230, 178, 60, a) };
                     let tagw = if r.repeat { 30.0 } else { 30.0 };
                     let tag_rect = egui::Rect::from_min_size(
-                        egui::pos2(x0 + 34.0 + name_w + 8.0, *y + row_h * 0.5 - 8.0),
+                        egui::pos2(x0 + 34.0 + name_w + 8.0, *y + row_h * 0.5 + name_dy - 7.5),
                         egui::vec2(tagw, 15.0),
                     );
                     cp.rect_stroke(tag_rect, 7.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(if r.repeat {52} else {230}, if r.repeat {211} else {178}, if r.repeat {153} else {60}, (a as f32 * 0.38) as u8)), egui::StrokeKind::Inside);
@@ -5693,7 +5696,7 @@ if self.show_rail_update() {
                 let tw = 34.0;
                 let th = 18.0;
                 // 6px
-                let tr = egui::Rect::from_min_size(egui::pos2(x1 - 4.0 - tw, *y + row_h * 0.5 - th * 0.5), egui::vec2(tw, th));
+                let tr = egui::Rect::from_min_size(egui::pos2(x1 - 10.0 - tw, *y + row_h * 0.5 - th * 0.5), egui::vec2(tw, th));
                 // 
                 let mut trash_rect = egui::Rect::from_min_size(egui::pos2(tr.left() - 30.0, *y + row_h * 0.5 - 10.0), egui::vec2(20.0, 20.0));
                 if r.custom {
@@ -7638,7 +7641,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     painter.text(
                         egui::pos2(x0 + 28.0, addrow_top + add_h * 0.5),
                         egui::Align2::LEFT_CENTER,
-                        "添加待办",
+                        "添加待办…",
                         egui::FontId::proportional(11.5),
                         muted2,
                     );
@@ -7716,7 +7719,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                 if mem_focused {
                     self.todo_was_focused = true;
                 }
-                draw_plus(painter, egui::pos2(x0 + 14.0, addrow_top + add_h * 0.5), 13.0, muted2);
+                draw_plus(painter, egui::pos2(x0 + 14.0, addrow_top + add_h * 0.5), 10.5, muted2);
                 // 
                 painter.text(
                     egui::pos2(x1 - 12.0, addrow_top + add_h * 0.5),
@@ -7764,11 +7767,11 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     }
                 }
             } else {
-                draw_plus(painter, egui::pos2(x0 + 14.0, addrow_top + add_h * 0.5), 13.0, muted2);
+                draw_plus(painter, egui::pos2(x0 + 14.0, addrow_top + add_h * 0.5), 10.5, muted2);
                 painter.text(
                     egui::pos2(x0 + 28.0, addrow_top + add_h * 0.5),
                     egui::Align2::LEFT_CENTER,
-                    "添加待办",
+                    "添加待办…",
                     egui::FontId::proportional(11.5),
                     muted2,
                 );
