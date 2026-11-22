@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/winisle_256.png" width="116" alt="WinIsle 图标">
+<img src="assets/winisle_256.png" width="112" alt="WinIsle 图标">
 
 # WinIsle
 
@@ -17,29 +17,37 @@
 
 ---
 
+<div align="center">
+<img src="docs/img/showcase_music.png" width="760" alt="WinIsle 展开后的音乐岛">
+</div>
+
 ## 简介
 
-**WinIsle** 是一个原创开源的 Windows 顶部「灵动岛」桌面伴侣。它常驻屏幕顶部，收起时只是一条精致的小岛；悬浮展开即是一个完整的控制中心——黑胶唱片、逐字渐绿的歌词、天气与日程，一切触手可及。
+**WinIsle** 是一个原创开源的 Windows 顶部「灵动岛」桌面伴侣。它常驻屏幕顶部，收起时只是一条精致的小岛；悬浮展开就是一个完整的控制中心——音乐、待办、提醒、天气与生活模块，都在同一条小岛里随手切换。
 
 - **纯原生**：使用 **Rust + egui/eframe 0.31**（glow/OpenGL 后端）从零实现，无 Electron、无 WebView、无运行时依赖，单文件即可运行。
-- **轻量安静**：常驻内存占用低，收起态只占一条小岛，不打断工作。
-- **开箱即用**：支持系统媒体控制（Windows SMTC）、网易云音乐 / 汽水音乐实时歌词、逐字卡拉 OK 高亮、毛玻璃展开动画与桌面托盘。
+- **轻量安静**：常驻内存占用低，收起态只占一条小岛，不占任务栏、不打断工作。
+- **开箱即用**：支持系统媒体控制（Windows SMTC）、网易云 / 汽水音乐实时歌词、逐字卡拉 OK 高亮、毛玻璃展开动画与系统托盘。
+- **不止于音乐**：待办清单、定时提醒、天气速览，以及把生日、纪念日与出差补贴装在一起的「生活」模块。
 
 > **官网：** <https://long-mf.github.io/WinIsle/>
 
 ## 功能特性
 
-- **黑胶音乐岛** — 三层旋转唱片（外环 / 黑胶音纹 / 真实封面）+ 摆动唱臂，歌名与歌手、进度条、上一首 / 播放暂停 / 下一首。
+- **黑胶音乐岛** — 三层旋转唱片（外环 / 黑胶音纹 / 真实封面）+ 摆动唱臂，歌名歌手、进度条与上一首 / 播放暂停 / 下一首。
 - **逐字渐绿歌词** — 卡拉 OK 式逐字点亮，换行平滑上滚、超长跑马灯；多源歌词（网易云 LRC/YRC、汽水官方逐字）。
-- **天气速览** — 折叠态常显天气，展开查看多日详情。
-- **日程页** — 展开面板内置日程模块（当前为「即将上线」占位，后续接入）。
+- **待办清单** — 岛内快速记录、勾选完成、归档与回车即存，随手把心里的事放下。
+- **定时提醒** — 自定义名称、图标、重复间隔与生效时段，到点用系统通知提醒你。
+- **天气速览** — 折叠态常显天气，展开查看多日详情；程序化动态天气图标，支持城市搜索与自动定位。
+- **生活模块** — 生日倒计时（公历 / 农历双历法、生肖星座）、纪念日（每年 / 一次性、周年），以及出差补贴（按天分档、自动累计总补贴与至今补贴）。
 - **收放动画** — 毛玻璃展开 / 收起、松手吸附回弹；左侧模块独立切换，记忆上次停留页面。
-- **待机表情** — 无音乐时可选择显示时间或 14 种带动画的机器人表情（Otto 表情素材）。
+- **待机表情** — 无音乐时可选择显示时间，或 14 种带动画的机器人表情（Otto 表情素材）。
 - **设置中心** — 歌词 / 显示 / 收起态 / 软件更新等全部在岛内完成，改动即时生效。
 - **自动更新** — 每日检查新版本，后台下载进度，一键安装并自动重启。
 
 <div align="center">
-<img src="docs/img/music.png" width="640" alt="WinIsle 音乐界面">
+<img src="docs/img/showcase_life.png" width="760" alt="WinIsle 生活模块：生日倒计时与出差补贴">
+<br><sub>生活模块：生日 · 纪念日 · 出差补贴，一个模块装三件事，都在同一条小岛里。</sub>
 </div>
 
 ## 技术栈
@@ -49,10 +57,11 @@
 | 语言 | Rust（stable, x86_64-pc-windows-gnu / MSVC 均可） |
 | GUI | [egui](https://github.com/emilk/egui) / [eframe](https://github.com/emilk/egui/tree/master/crates/eframe) 0.31（glow / OpenGL） |
 | 窗口 | Win32 / DWM FFI（置顶无边框、逐帧 `SetWindowRgn` 圆角区域、拖动命中） |
-| 媒体 | Windows SMTC（`Windows.Media.Control`）+ 本地播放器内存/CDP 读取 |
+| 媒体 | Windows SMTC（`Windows.Media.Control`）+ 本地播放器内存 / CDP 读取 |
 | 托盘 | [tray-icon](https://github.com/tauri-apps/tray-icon) |
 | 网络 | [ureq](https://github.com/algesten/ureq) + serde_json |
 | 图像 | [image](https://github.com/image-rs/image) |
+| 生活模块 | 纯手写公历 / 农历换算（1900–2100 农历表）与按天分档补贴计算，无第三方日期库 |
 
 ## 下载与安装
 
@@ -71,6 +80,9 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1
 
 # 仅编译
 cargo build --release      # 产物：target\release\winisle.exe
+
+# 运行测试
+cargo test --release
 ```
 
 - 工具链：stable-x86_64-pc-windows-gnu（mingw-w64）。`scripts\genv.ps1` 已配好本机工具链与代理处理。
@@ -81,6 +93,7 @@ cargo build --release      # 产物：target\release\winisle.exe
 ```
 src/
   main.rs        eframe App：窗口 / 动画 / 音乐模块 UI / 设置 / 待机表情
+  life.rs        生活模块：生日倒计时 / 纪念日 / 出差补贴（含农历换算与单元测试）
   platform.rs    Win32/DWM FFI、逐帧窗口区域、拖动命中、网易云内存读取
   smtc.rs        Windows SMTC 会话、元数据、播放控制、时间轴
   lyrics.rs      歌词 / 封面：搜索打分、YRC 逐字、LRC 解析、缓存

@@ -4,11 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WinIsle — 停靠在 Windows 桌面顶部的灵动岛</title>
-<meta name="description" content="WinIsle：停靠在 Windows 屏幕顶部的灵动岛桌面伴侣。黑胶音乐、逐字歌词、天气、待机表情与设置中心，一触即达。开源、免费、原生 Rust，无 Electron。">
+<meta name="description" content="WinIsle：停靠在 Windows 屏幕顶部的灵动岛桌面伴侣。黑胶音乐、逐字歌词、待办、提醒、天气与生活模块（生日 / 纪念日 / 出差补贴），一触即达。开源、免费、原生 Rust，无 Electron。">
 <meta name="theme-color" content="#0d0f10">
 <meta property="og:title" content="WinIsle — Windows 桌面灵动岛">
-<meta property="og:description" content="开源 · 免费 · 原生 Rust。把灵动岛带上 Windows 桌面。">
+<meta property="og:description" content="开源 · 免费 · 原生 Rust。音乐、待办、提醒、天气与生活模块，一条小岛全部装下。">
 <meta property="og:type" content="website">
+<meta property="og:image" content="https://long-mf.github.io/WinIsle/img/og_winisle.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://long-mf.github.io/WinIsle/img/og_winisle.png">
 <link rel="icon" type="image/svg+xml" href="img/logo.svg">
 <style>
   :root{
@@ -128,6 +133,9 @@
   footer .brand-mini{display:flex;align-items:center;gap:9px;color:var(--muted);font-weight:700}
   footer .brand-mini img{width:22px;height:22px;border-radius:6px}
 
+  .life-show{margin-top:-18px}
+  .life-show img{display:block;width:100%;border-radius:22px;border:1px solid var(--line2);box-shadow:0 30px 70px rgba(0,0,0,.45)}
+
   @media (max-width:960px){
     .hero .wrap{grid-template-columns:1fr;gap:40px}
     .highlights .wrap{grid-template-columns:1fr 1fr}
@@ -167,7 +175,7 @@
     <div>
       <span class="pill-badge"><span class="dot"></span>开源 · 免费 · 原生 Rust</span>
       <h1>把「灵动岛」<br>带到 <span class="hl">Windows</span> 桌面</h1>
-      <p class="sub">WinIsle 常驻屏幕顶部，收起时只是一条精致的小岛；悬浮展开即是一个完整的控制中心——黑胶唱片、逐字渐绿的歌词、天气与待机表情，一切触手可及。</p>
+      <p class="sub">WinIsle 常驻屏幕顶部，收起时只是一条精致的小岛；悬浮展开就是一个完整的控制中心——音乐、待办、提醒、天气与生活模块，一切触手可及。</p>
       <div class="cta">
         <a class="btn btn-primary" id="btn-dl-top" href="https://github.com/long-mf/WinIsle/releases/latest" target="_blank" rel="noopener">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -179,7 +187,7 @@
     </div>
     <div class="hero-shot">
       <div class="glow"></div>
-      <div class="frame"><img src="img/music.png" alt="WinIsle 黑胶音乐展开界面"></div>
+      <div class="frame"><img src="img/island_music.png" alt="WinIsle 黑胶音乐展开界面"></div>
       <img class="float-icon" src="img/logo.svg" alt="WinIsle 图标">
     </div>
   </div>
@@ -188,7 +196,7 @@
 <div class="highlights">
   <div class="wrap">
     <div class="hl-item"><div class="n">0 依赖</div><div class="t">纯原生实现</div><div class="d">Rust + egui/eframe，无 Electron、无 WebView，单文件即可运行。</div></div>
-    <div class="hl-item"><div class="n">7 合 1</div><div class="t">一块小岛，多种能力</div><div class="d">音乐、歌词、天气、待机表情、设置……在一条小岛里切换。</div></div>
+    <div class="hl-item"><div class="n">5 大模块</div><div class="t">一块小岛，多种能力</div><div class="d">音乐、待办、提醒、天气、生活，在一条小岛里随手切换。</div></div>
     <div class="hl-item"><div class="n">60 fps</div><div class="t">丝滑收放动画</div><div class="d">毛玻璃展开收起、松手吸附回弹，逐字歌词高帧刷新。</div></div>
     <div class="hl-item"><div class="n">MIT</div><div class="t">开源可自托管</div><div class="d">全部源码公开，自动更新、隐私友好，不打扰工作。</div></div>
   </div>
@@ -216,6 +224,21 @@
         <div class="ic" style="background:rgba(239,147,64,.16)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#EF9340" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 1 0-.9-8.9 6 6 0 1 0-11.4 2.2A3.5 3.5 0 0 0 6.5 19z"/><path d="M8 22l-1 2M12 22l-1 2M16 22l-1 2"/></svg></div>
         <h3>天气速览</h3>
         <p>折叠态常显当前天气，展开查看未来多日详情；8 种程序化动态天气图标，支持城市搜索与自动定位。</p>
+      </div>
+      <div class="card">
+        <div class="ic" style="background:rgba(52,211,153,.16)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#34D399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="8 12 11 15 16 9"/></svg></div>
+        <h3>待办清单</h3>
+        <p>岛内快速记录、勾选完成与归档，回车即存，随手把心里的事放下，不打断手上的工作。</p>
+      </div>
+      <div class="card">
+        <div class="ic" style="background:rgba(230,178,60,.16)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E6B23C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+        <h3>定时提醒</h3>
+        <p>自定义名称、图标、重复间隔与生效时段，到点用系统通知提醒你，重要的事不会错过。</p>
+      </div>
+      <div class="card">
+        <div class="ic" style="background:rgba(47,214,166,.16)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2FD6A6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.6L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg></div>
+        <h3>生活模块</h3>
+        <p>生日倒计时（公历 / 农历双历法）、纪念日与出差补贴（按天分档、自动累计），一个模块装三件事。</p>
       </div>
       <div class="card">
         <div class="ic" style="background:rgba(62,134,201,.16)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#3E86C9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M8 12a4 4 0 0 1 8 0"/><circle cx="12" cy="12" r="1.4" fill="#3E86C9"/></svg></div>
@@ -246,6 +269,12 @@
   </div>
 </section>
 
+<section id="life" style="padding-top:0">
+  <div class="wrap">
+    <div class="life-show"><img src="img/showcase_life.png" alt="生活模块：生日倒计时与出差补贴"></div>
+  </div>
+</section>
+
 <section id="tech">
   <div class="wrap">
     <div class="sec-head">
@@ -272,6 +301,14 @@
       <p>每一次迭代都为了让这条小岛更顺手。完整版本记录见 GitHub Releases。</p>
     </div>
     <div class="cl">
+      <div class="cl-item">
+        <div class="cl-ver"><div class="v">v0.4.0<span class="tag">开发中</span></div><div class="date">2026-11-22</div></div>
+        <div class="cl-body"><ul>
+          <li><b>生活模块</b>：全新第 5 个模块，生日倒计时（公历 / 农历双历法、生肖星座）、纪念日（每年 / 一次性）与出差补贴（按天分档、总补贴与至今补贴）一个模块装三件事。</li>
+          <li><b>待办与提醒</b>：岛内待办清单与定时提醒完整可用，支持勾选、归档、重复间隔与生效时段。</li>
+          <li><b>界面打磨</b>：左侧导航改为五项并统一图标与文字中线；日期选择器支持年份快速筛选；补贴区间可按天级联维护并实时校验。</li>
+        </ul></div>
+      </div>
       <div class="cl-item">
         <div class="cl-ver"><div class="v">v0.3.0<span class="tag">最新</span></div><div class="date">2026-11-18</div></div>
         <div class="cl-body"><ul>
