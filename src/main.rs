@@ -3779,13 +3779,7 @@ let (u0, v0, u1, v1) = self.face_content_uv(idx);
             x = x1;
         }
         //   90
-        if self.remind_dot.is_some() && a > 20 {
-            let pulse = 0.5 + 0.5 * (t * 3.0).sin() as f32;
-            let dc = egui::pos2(pill.right() - 7.0, pill.top() + 7.0);
-            painter.circle_filled(dc, 4.6, egui::Color32::from_rgba_unmultiplied(242, 112, 92, (40.0 * pulse) as u8));
-            painter.circle_filled(dc, 2.6, egui::Color32::from_rgba_unmultiplied(242, 112, 92, a));
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(60));
-        }
+        // 提醒小红点已按需求移除（不再在收起胶囊右上角绘制红点）
         if self.music_motion {
             //  / /+  60fps            //  music_motion=false16ms60ms 16.7fps
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
@@ -5131,11 +5125,7 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
             let ccy = item.center().y;
             draw_nav_icon(&rp, *icon_kind, egui::pos2(cx, ccy - 7.0), 18.0, icol);
             rp.text(egui::pos2(cx, ccy + 10.5), egui::Align2::CENTER_CENTER, *label, bold_font(10.5), icol);
-            if idx == 2 && self.remind_dot.is_some() {
-                let dc = egui::pos2(item.right() - 3.0, iy + 6.0);
-                painter.circle_filled(dc, 4.2, egui::Color32::from_rgba_unmultiplied(242, 112, 92, (a as f32 * 0.22) as u8));
-                painter.circle_filled(dc, 2.6, egui::Color32::from_rgba_unmultiplied(242, 112, 92, a));
-            }
+            // 提醒小红点已按需求移除（左侧 rail「提醒」项不再绘制红点）
             let resp = ui.interact(item, ui.id().with(("rail", idx)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.clicked() {
                 self.show_settings = false;
