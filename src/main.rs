@@ -6394,7 +6394,7 @@ for i in 0..min_count {
                 let left = content.center().x - list_w * 0.5;
                 let top0 = content.center().y - total_h * 0.5 + 6.0 + (1.0 - le_ease) * 10.0;
                 let ptr = ui.ctx().pointer_interact_pos();
-                let clicked = ui.input(|i| i.pointer.primary_clicked() || i.pointer.primary_pressed());
+                let clicked = ui.input(|i| i.pointer.primary_clicked());
                 let mut action: Option<(u64, bool)> = None; // (id, is_done)
                 for (k, rid) in vis.iter().copied().enumerate() {
                     let rem = match self.reminders.iter().find(|r| r.id == rid) { Some(r) => r.clone(), None => continue };
@@ -6510,7 +6510,7 @@ for i in 0..min_count {
         );
         // + Ui 
         let ptr = ui.ctx().pointer_interact_pos();
-        let clicked = ui.input(|i| i.pointer.primary_clicked() || i.pointer.primary_pressed());
+        let clicked = ui.input(|i| i.pointer.primary_clicked());
         let over_snooze = ptr.map_or(false, |p| snooze.contains(p));
         let over_done = ptr.map_or(false, |p| done.contains(p));
         if over_snooze || over_done {
