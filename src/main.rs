@@ -1530,6 +1530,7 @@ struct IslandApp {
     remind_mlist_anim: f32,
     remind_closing: bool,
     remind_mlist_mode: bool,
+    remind_morph: f32,
 }
 
 impl IslandApp {
@@ -1843,6 +1844,7 @@ let (r, cov, settled) = if light {
             remind_mlist_anim: 1.0,
             remind_closing: false,
             remind_mlist_mode: false,
+            remind_morph: 1.0,
         };
         if let Ok(v) = std::env::var("WINISLE_CITY_SEARCH") {
             app.show_settings = true;
@@ -5455,7 +5457,8 @@ if self.show_rail_update() {
             self.remind_alert_anim = v.clamp(0.0, 1.0);
         } else if (self.remind_alert_anim - aa_target).abs() > 0.001 {
             let dt = ctx.input(|i| i.stable_dt).min(0.05);
-            let k = 1.0 - (-dt / 0.16).exp();
+            let dur = if self.remind_closing { 0.09 } else { 0.16 };
+            let k = 1.0 - (-dt / dur).exp();
             self.remind_alert_anim += (aa_target - self.remind_alert_anim) * k;
             if (self.remind_alert_anim - aa_target).abs() < 0.002 {
                 self.remind_alert_anim = aa_target;
@@ -6325,6 +6328,24 @@ for i in 0..min_count {
         if aa <= 0.002 {
             return;
         }
+        // 单卡 <-> 列表 切换过渡（1→N 时大卡淡出、列表淡入）
+        let cur_n = self.remind_queue.len().max(if self.remind_alert.is_some() { 1 } else { 0 });
+        let was_mode = self.remind_mlist_mode;
+        if cur_n > 1 {
+            self.remind_mlist_mode = true;
+        }
+        let want_list = self.remind_mlist_mode;
+        let dtm = ui.input(|i| i.stable_dt).clamp(0.001, 0.1);
+        if want_list && !was_mode && cur_n > 1 {
+            self.remind_morph = 0.0;
+        } else if !want_list {
+            self.remind_morph = 1.0;
+        } else {
+            self.remind_morph = (self.remind_morph + dtm / 0.20).min(1.0);
+        }
+        if let Some(v) = std::env::var("WINISLE_MORPH_FREEZE").ok().and_then(|s| s.parse::<f32>().ok()) {
+            self.remind_morph = v.clamp(0.0, 1.0);
+        }
         let ease = aa * aa * (3.0 - 2.0 * aa);
         let fade = |c: egui::Color32| egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), ((c.a() as f32) * aa) as u8);
         // ---------- 多条提醒：列表逐条处理（同屏 3 条，处理后剩余上移渐显） ----------
@@ -6334,10 +6355,7 @@ for i in 0..min_count {
                 if let Some(a) = self.remind_alert { ids.push(a); }
             }
             ids.retain(|i| self.reminders.iter().any(|r| r.id == *i));
-            if ids.len() > 1 {
-                self.remind_mlist_mode = true;
-            }
-            if self.remind_mlist_mode && !ids.is_empty() {
+            if want_list && !ids.is_empty() {
                 let n_total = ids.len();
                 let vis: Vec<u64> = ids.iter().take(3).copied().collect();
                 let sig = (n_total as u64).wrapping_mul(1000003) ^ vis.first().copied().unwrap_or(0);
@@ -6346,11 +6364,11 @@ for i in 0..min_count {
                     self.remind_mlist_sig = sig;
                     self.remind_mlist_anim = 0.0;
                 } else {
-                    self.remind_mlist_anim = (self.remind_mlist_anim + dt / 0.22).min(1.0);
+                    self.remind_mlist_anim = (self.remind_mlist_anim + dt / 0.14).min(1.0);
                 }
                 let le = self.remind_mlist_anim;
                 let le_ease = le * le * (3.0 - 2.0 * le);
-                let ra = aa * (0.22 + 0.78 * le_ease);
+                let ra = aa * (0.35 + 0.65 * le_ease) * self.remind_morph.clamp(0.0, 1.0);
                 let rfade = |c: egui::Color32| egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), ((c.a() as f32) * ra) as u8);
                 // 遮罩（跟随内容区右侧圆角）
                 let rr = self.cfg.radius.min(content.height() * 0.5).min(content.width() * 0.5);
@@ -6374,7 +6392,7 @@ for i in 0..min_count {
                     fade(egui::Color32::from_rgb(233, 236, 242)),
                 );
                 let left = content.center().x - list_w * 0.5;
-                let top0 = content.center().y - total_h * 0.5 + 6.0 + (1.0 - le_ease) * row_h;
+                let top0 = content.center().y - total_h * 0.5 + 6.0 + (1.0 - le_ease) * 10.0;
                 let ptr = ui.ctx().pointer_interact_pos();
                 let clicked = ui.input(|i| i.pointer.primary_clicked() || i.pointer.primary_pressed());
                 let mut action: Option<(u64, bool)> = None; // (id, is_done)
@@ -6419,11 +6437,23 @@ for i in 0..min_count {
                     ui.ctx().request_repaint();
                     return;
                 }
-                let wait = if le < 1.0 { 16 } else { 33 };
+                let wait = if le < 1.0 || self.remind_morph < 1.0 { 16 } else { 33 };
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(wait));
-                return;
+                if self.remind_morph >= 0.995 {
+                    return;
+                }
             }
         }
+        let morph = self.remind_morph.clamp(0.0, 1.0);
+        if self.remind_mlist_mode && morph >= 0.995 {
+            return;
+        }
+        let aa = if self.remind_mlist_mode { aa * (1.0 - morph) } else { aa };
+        if aa <= 0.002 {
+            return;
+        }
+        let ease = aa * aa * (3.0 - 2.0 * aa);
+        let fade = |c: egui::Color32| egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), ((c.a() as f32) * aa) as u8);
         let icon = rem.icon;
         let tip = if icon == 5 { rem.name.clone() } else { remind_tip(icon).to_string() };
         let desc = if icon == 5 { format!("自定义提醒 · 每{}分钟", rem.interval_min) } else { remind_desc(&rem) };
