@@ -3337,6 +3337,23 @@ if self.hwnd == 0 {
                 let lum_force = std::env::var("WINISLE_GLOW_LUM").ok().and_then(|v| v.parse::<f32>().ok());
                 let lum = lum_force.unwrap_or_else(|| platform::screen_luminance_at(sx.max(0), sy.max(0)));
                 let light_bg = lum > 0.62;
+                // 吸附到屏幕的那条边不画呼吸光：贴屏的一侧被屏幕边缘裁掉，
+                // 画上去只会沿屏幕边形成一条亮“缝”，而且贴着屏幕本身也看不见光晕。
+                let gclip = {
+                    let mut c = pill.expand(14.0);
+                    match self.cfg.position {
+                        DockPosition::LeftCenter | DockPosition::TopLeft => c.min.x = pill.left() + 1.0,
+                        DockPosition::RightCenter | DockPosition::TopRight => c.max.x = pill.right() - 1.0,
+                        _ => {}
+                    }
+                    match self.cfg.position {
+                        DockPosition::TopCenter | DockPosition::TopLeft | DockPosition::TopRight => c.min.y = pill.top() + 1.0,
+                        DockPosition::BottomCenter => c.max.y = pill.bottom() - 1.0,
+                        _ => {}
+                    }
+                    c
+                };
+                let painter = painter.with_clip_rect(gclip);
                 let cc: [u8; 3] = col;
                 let boost = 1.0f32;
                 // 紧贴胶囊边界的桥接光：浅色背景用实色，避免泛白
