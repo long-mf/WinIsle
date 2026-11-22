@@ -8646,9 +8646,15 @@ let tile_h = 60.0f32;
         let list_bottom = content.bottom() - CONTENT_PAD_B;
         let view_h = (list_bottom - list_top).max(1.0);
         let face_on = self.face_mode_active();
-        let mut total_h = label_h * 6.0 + group_gap * 5.0 + row_h * 11.0 + label_h;
+        let comp_n = self.comp_order().len();
+        let n_headers = 5usize + if face_on { 1 } else { 0 };
+        let n_rows = comp_n + 6;
+        let mut total_h = n_headers as f32 * label_h
+            + n_headers.saturating_sub(1) as f32 * group_gap
+            + n_rows as f32 * row_h
+            + label_h;
         if face_on {
-            total_h += row_h + grid_h;
+            total_h += grid_h;
         }
         let max_scroll = (total_h - view_h).max(0.0);
         // 
@@ -8719,9 +8725,22 @@ if let Ok(v) = std::env::var("WINISLE_SET_SCROLL") {
             painter.text(egui::pos2(left, y + row_h * 0.5), egui::Align2::LEFT_CENTER, s, egui::FontId::proportional(13.5), c);
         };
         let tg = |y: f32| egui::Rect::from_min_size(egui::pos2(right - 32.0, y + row_h * 0.5 - 8.0), egui::vec2(32.0, 16.0));
+        let group_header = |painter: &egui::Painter, y: f32, s: &str| {
+            painter.text(
+                egui::pos2(left, y + label_h * 0.5),
+                egui::Align2::LEFT_CENTER,
+                s,
+                egui::FontId::proportional(12.0),
+                muted2,
+            );
+            painter.line_segment(
+                [egui::pos2(left, y + label_h - 2.0), egui::pos2(right, y + label_h - 2.0)],
+                egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 9)),
+            );
+        };
 
         //   +
-        painter.text(egui::pos2(left, y), egui::Align2::LEFT_TOP, "", egui::FontId::proportional(13.0), muted2);
+        group_header(painter, y, "模块排序");
         y += label_h;
         {
             let mut order = self.comp_order();
@@ -8871,9 +8890,9 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
             y += label_h;
         }
         if face_on {
-            // 
-            row_label(painter, y, "待机表情", ink);
-            y += row_h;
+            y += group_gap;
+            group_header(painter, y, "待机表情");
+            y += label_h;
             let area = egui::Rect::from_min_size(egui::pos2(left, y), egui::vec2(right - left, grid_h));
             let tsec = ui.input(|i| i.time);
             let mut face_uvs: Vec<Option<(f32, f32, f32, f32)>> = Vec::with_capacity(FACES.len());
@@ -8892,17 +8911,12 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
 
         // 
         y += group_gap;
-        painter.text(egui::pos2(left, y), egui::Align2::LEFT_TOP, "音乐", egui::FontId::proportional(13.0), muted2);
+        group_header(painter, y, "音乐");
         y += label_h;
         // 
         row_label(painter, y, "波纹频谱", ink);
         { let trect = tg(y); if let Some(v) = Self::draw_toggle(ui, painter, trect, self.cfg.water_spectrum, ui.id().with("tg_water_spec"), accent, a, true) { self.cfg.water_spectrum = v; changed = true; } }
         y += row_h;
-
-        y += group_gap;
-        painter.text(egui::pos2(left, y), egui::Align2::LEFT_TOP, "歌词", egui::FontId::proportional(13.0), muted2);
-        y += label_h;
-        // 
         row_label(painter, y, "换行滚动动画", ink);
         { let trect = tg(y); if let Some(v) = Self::draw_toggle(ui, painter, trect, self.cfg.roll_anim, ui.id().with("tg_roll"), accent, a, true) { self.cfg.roll_anim = v; changed = true; } }
         y += row_h;
@@ -8913,7 +8927,7 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
 
         // 
         y += group_gap;
-        painter.text(egui::pos2(left, y), egui::Align2::LEFT_TOP, "窗口", egui::FontId::proportional(13.0), muted2);
+        group_header(painter, y, "窗口");
         y += label_h;
         row_label(painter, y, "左右吸附", ink);
         { let trect = tg(y); if let Some(v) = Self::draw_toggle(ui, painter, trect, self.cfg.side_snap, ui.id().with("tg_side_snap"), accent, a, true) { self.cfg.side_snap = v; changed = true; } }
@@ -8921,7 +8935,7 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
 
         // 
         y += group_gap;
-        painter.text(egui::pos2(left, y), egui::Align2::LEFT_TOP, "天气", egui::FontId::proportional(13.0), muted2);
+        group_header(painter, y, "天气");
         y += label_h;
         row_label(painter, y, "温度单位", ink);
         {
@@ -8933,8 +8947,8 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
         }
         y += row_h;
 
-        //         y += group_gap;
-        painter.text(egui::pos2(left, y), egui::Align2::LEFT_TOP, "通用", egui::FontId::proportional(13.0), muted2);
+        y += group_gap;
+        group_header(painter, y, "通用");
         y += label_h;
         row_label(painter, y, "检查更新", ink);
         {
