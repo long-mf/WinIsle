@@ -93,6 +93,10 @@ cargo test --release
 - 工具链：stable-x86_64-pc-windows-gnu（mingw-w64）。`scripts\genv.ps1` 已配好本机工具链与代理处理。
 - 打包发布：`scripts\pack.ps1 -Version x.y.z` 生成 `dist\` 下的安装包 / 绿色版 / `latest.json`；打 `v*` tag 即触发 CI 自动发布。
 
+## 数据存放
+
+所有配置与数据（`config.ini`、`todo.json`、`reminders.json`、`birthdays.json`、`anniversaries.json`、`subsidy.json` 等）默认保存在**程序所在目录的 `data\` 下**，随安装/迁移目录一起走，不写入系统盘用户目录。旧版本放在 `%APPDATA%\WinIsle\data` 的数据会在首次启动时自动迁移到新位置；只有安装目录不可写（例如装进了受保护的系统目录）时，才回退到 `%APPDATA%\WinIsle\data`。也可用环境变量 `WINISLE_DATA_DIR` 指定数据目录。
+
 ## 目录结构
 
 ```
@@ -104,7 +108,7 @@ src/
   lyrics.rs      歌词 / 封面：搜索打分、YRC 逐字、LRC 解析、缓存
   update.rs      自动更新（GitHub API 兜底）
   tray.rs        系统托盘
-  paths.rs       数据目录（%APPDATA%\WinIsle\data，绿色版沿用 exe 旁 data\）
+  paths.rs       数据目录（跟随安装目录：exe 旁 data\；不可写时才回退 %APPDATA%\WinIsle\data）
 assets/          应用图标、唱机贴图、表情动画帧
 docs/            官方网站（GitHub Pages，源为 /docs）
 installer/       Inno Setup 安装脚本

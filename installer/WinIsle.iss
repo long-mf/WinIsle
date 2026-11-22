@@ -11,6 +11,7 @@ AppId={{C2E5A7B4-9D31-4F68-8A1E-3B7C9D2F5A61}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=WinIsle
+; 数据默认存放在安装目录的 data\ 下（跟随安装目录，不写用户目录）；可按需改选安装盘。
 DefaultDirName={localappdata}\Programs\WinIsle
 DefaultGroupName=WinIsle
 DisableProgramGroupPage=yes
