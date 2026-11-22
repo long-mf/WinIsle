@@ -15,6 +15,7 @@ mod paths;
 mod weather;
 mod audio_meter;
 mod soda_now;
+mod life;
 
 use eframe::egui;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -871,6 +872,7 @@ enum Module {
     Todo,
     Reminder,
     Weather,
+    Life,
 }
 
 impl Module {
@@ -880,6 +882,8 @@ fn rail_idx(self) -> f32 {
             Module::Music => 0.0,
             Module::Todo => 1.0,
             Module::Reminder => 2.0,
+            Module::Weather => 3.0,
+            Module::Life => 4.0,
             _ => 3.0,
         }
     }
@@ -893,6 +897,7 @@ enum DbgView {
     Todo,
     Reminder,
     Weather,
+    Life,
 }
 
 /// `data/todo.json`
@@ -1429,6 +1434,8 @@ struct IslandApp {
     ///   / 
     rail_anim_at: Option<std::time::Instant>,
     rail_from: f32,
+    rail_scroll: f32,
+    rail_scroll_target: f32,
     last_active: Module,
     /// None=
     upd_ver: Option<update::Manifest>,
@@ -1590,6 +1597,7 @@ struct IslandApp {
     remind_closing: bool,
     remind_mlist_mode: bool,
     remind_morph: f32,
+    life: crate::life::LifeState,
 }
 
 impl IslandApp {
@@ -1640,6 +1648,7 @@ let (r, cov, settled) = if light {
             Some("todo") => Some(DbgView::Todo),
             Some("reminder") => Some(DbgView::Reminder),
             Some("weather") => Some(DbgView::Weather),
+            Some("life") => Some(DbgView::Life),
             _ => None,
         };
         // /
@@ -1801,6 +1810,8 @@ let (r, cov, settled) = if light {
             dbg_page,
             rail_anim_at: None,
             rail_from: 0.0,
+            rail_scroll: 0.0,
+            rail_scroll_target: 0.0,
             last_active: Module::Music,
             upd_ver: None,
             upd_msg: String::new(),
@@ -1838,6 +1849,7 @@ let (r, cov, settled) = if light {
             w_search_inflight: false,
             w_search_last_edit: Instant::now(),
             w_search_last_query: String::new(),
+            life: crate::life::LifeState::load(),
             todos,
             todo_next_id,
             todo_done_seq,
@@ -4788,7 +4800,7 @@ let btn_y = rect.top() + CONTENT_PAD_T + 108.0 - 10.0;
         let rplay = egui::Rect::from_center_size(play_c, egui::vec2(58.0, 36.0));
         self.ctrl_hit.push(rplay);
         let resp_play = ui.interact(rplay, ui.id().with("mctrl_play"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        let play_bg = egui::Color32::from_rgba_unmultiplied(35, 88, 72, a);
+        let play_bg = egui::Color32::from_rgba_unmultiplied(54, 58, 66, a); // 与圆盘最外圈同色
         painter.rect_filled(
             egui::Rect::from_center_size(play_c, egui::vec2(58.0, 34.0)),
             egui::CornerRadius::same(17),
@@ -4799,7 +4811,11 @@ let btn_y = rect.top() + CONTENT_PAD_T + 108.0 - 10.0;
             clicked = Some("play");
         }
         let next_size = 15.0;
-        let next_c = egui::pos2(tx + 104.0, btn_y);
+        // 让上一首与胶囊、胶囊与下一首的视觉间隙保持一致（按图标实际边缘计算，而不是按中心距）
+        let play_half_w = 29.0;
+        let prev_visual_right = prev_c.x + 0.42 * prev_size;
+        let side_gap = (play_c.x - play_half_w) - prev_visual_right;
+        let next_c = egui::pos2(play_c.x + play_half_w + side_gap + 0.42 * next_size, btn_y);
         let rnext = egui::Rect::from_center_size(next_c, egui::vec2(26.0, 26.0));
         self.ctrl_hit.push(rnext);
         let resp_next = ui.interact(rnext, ui.id().with("mctrl_next"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -5056,9 +5072,23 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
         );
 
         let active = self.active.rail_idx() as usize;
-        let items: [(&str, u8); 4] = [("音乐", 0), ("待办", 3), ("提醒", 4), ("天气", 2)];
-        let item_h = 48.0f32;
+        let items: [(&str, u8); 5] = [("音乐", 0), ("待办", 3), ("提醒", 4), ("天气", 2), ("生活", 5)];
+        let item_h = 43.0f32;
         let top_y = pill.top() + 34.0; // "让出顶部时间"
+        let set_y = pill.bottom() - item_h;
+        let items_area = egui::Rect::from_min_max(egui::pos2(pill.left(), top_y), egui::pos2(pill.left() + rail_w, set_y - 2.0));
+        let content_h = items.len() as f32 * item_h;
+        let max_scroll = (content_h - items_area.height()).max(0.0);
+        if ui.rect_contains_pointer(rail) && !modal {
+            let sd = ui.input(|i| i.smooth_scroll_delta.y);
+            if sd.abs() > 0.1 {
+                self.rail_scroll_target = (self.rail_scroll_target - sd).clamp(0.0, max_scroll);
+            }
+        }
+        self.rail_scroll_target = self.rail_scroll_target.clamp(0.0, max_scroll);
+        self.rail_scroll += (self.rail_scroll_target - self.rail_scroll) * 0.35;
+        if (self.rail_scroll_target - self.rail_scroll).abs() > 0.3 { ui.ctx().request_repaint(); }
+        let rail_scroll = self.rail_scroll;
 
         // 
         {
@@ -5086,19 +5116,21 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
         let eff_shown = if settings_active { -2.0 } else { shown_idx };
         // 
         if !settings_active {
-            let hl_y = top_y + shown_idx * item_h;
+            let hl_y = top_y + shown_idx * item_h - rail_scroll;
             let hl_rect = egui::Rect::from_min_size(egui::pos2(pill.left() + 9.0, hl_y), egui::vec2(rail_w - 18.0, item_h - 8.0));
             painter.rect_filled(hl_rect, 10.0, egui::Color32::from_rgba_unmultiplied(52, 211, 153, (a as f32 * 0.14) as u8));
         }
 
-        let mut iy = top_y;
+        let mut iy = top_y - rail_scroll;
+        let rp = painter.with_clip_rect(items_area);
         for (idx, (label, icon_kind)) in items.iter().enumerate() {
             let item = egui::Rect::from_min_size(egui::pos2(pill.left() + 9.0, iy), egui::vec2(rail_w - 18.0, item_h - 8.0));
             let w = (1.0 - (idx as f32 - eff_shown).abs()).clamp(0.0, 1.0);
             let icol = lerp_color(muted, accent, w);
             let cx = item.center().x;
-            draw_nav_icon(painter, *icon_kind, egui::pos2(cx, iy + 13.0), 18.0, icol);
-            painter.text(egui::pos2(cx, iy + 31.5), egui::Align2::CENTER_CENTER, *label, bold_font(10.5), icol);
+            let ccy = item.center().y;
+            draw_nav_icon(&rp, *icon_kind, egui::pos2(cx, ccy - 7.0), 18.0, icol);
+            rp.text(egui::pos2(cx, ccy + 10.5), egui::Align2::CENTER_CENTER, *label, bold_font(10.5), icol);
             if idx == 2 && self.remind_dot.is_some() {
                 let dc = egui::pos2(item.right() - 3.0, iy + 6.0);
                 painter.circle_filled(dc, 4.2, egui::Color32::from_rgba_unmultiplied(242, 112, 92, (a as f32 * 0.22) as u8));
@@ -5111,7 +5143,7 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
                 self.w_city_search_from_weather = false;
                 self.w_search_need_focus = false;
                 self.w_search_focus_tries = 0;
-                let ni = match idx { 0 => Module::Music, 1 => Module::Todo, 2 => Module::Reminder, _ => Module::Weather };
+                let ni = match idx { 0 => Module::Music, 1 => Module::Todo, 2 => Module::Reminder, 3 => Module::Weather, _ => Module::Life };
                 if ni == Module::Reminder {
                     // ?
 self.remind_dot = None;
@@ -5130,15 +5162,15 @@ self.remind_dot = None;
 
 
         {
-            let set_y = pill.bottom() - item_h;
             let item = egui::Rect::from_min_size(egui::pos2(pill.left() + 9.0, set_y), egui::vec2(rail_w - 18.0, item_h - 8.0));
             if settings_active {
                 painter.rect_filled(item, 10.0, egui::Color32::from_rgba_unmultiplied(52, 211, 153, (a as f32 * 0.14) as u8));
             }
             let icol = if settings_active { accent } else { muted };
             let cx = item.center().x;
-            painter.text(egui::pos2(cx, set_y + 13.0), egui::Align2::CENTER_CENTER, "\u{E713}", icon_font(17.0), icol);
-            painter.text(egui::pos2(cx, set_y + 31.5), egui::Align2::CENTER_CENTER, "设置", egui::FontId::proportional(10.5), icol);
+            let scy = item.center().y;
+            painter.text(egui::pos2(cx, scy - 7.0), egui::Align2::CENTER_CENTER, "\u{E713}", icon_font(17.0), icol);
+            painter.text(egui::pos2(cx, scy + 10.5), egui::Align2::CENTER_CENTER, "设置", egui::FontId::proportional(10.5), icol);
             let resp = ui.interact(item, ui.id().with("rail_settings"), egui::Sense::click())
                 .on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.clicked() {
@@ -5206,6 +5238,12 @@ if self.show_rail_update() {
                 }
                 Module::Schedule => self.draw_placeholder_page(&cclip, cslide, e, "日程", "日程模块即将上线"),
                 Module::Todo => self.draw_todo_page(ui, &cclip, cslide, e),
+                Module::Life => {
+                    if ui.input(|i| i.pointer.primary_pressed()) && ui.rect_contains_pointer(cslide) {
+                        platform::force_foreground(self.hwnd);
+                    }
+                    crate::life::draw(ui, &cclip, cslide, e, &mut self.life);
+                }
                 Module::Reminder => self.draw_reminder_page(ui, &cclip, cslide, e),
                 Module::Weather => self.draw_weather_page(ui, &cclip, cslide, e),
             }
@@ -6058,6 +6096,7 @@ if self.show_rail_update() {
                         .frame(false)
                         .id(name_id)
                         .margin(egui::Margin::symmetric(9, 3))
+                        .vertical_align(egui::Align::Center)
                         .font(egui::FontId::proportional(12.5))
                         .text_color(ink),
                 )
@@ -6118,6 +6157,7 @@ if self.show_rail_update() {
                 .id(interval_id)
                 .char_limit(4)
                 .horizontal_align(egui::Align::Center)
+                .vertical_align(egui::Align::Center)
                 .font(egui::FontId::proportional(12.5))
                 .text_color(ink);
             ui.scope(|ui| {
@@ -7762,6 +7802,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                 let te = egui::TextEdit::singleline(&mut txt)
                     .frame(false)
                     .id(inp_id)
+                    .vertical_align(egui::Align::Center)
                     .font(egui::FontId::proportional(12.0))
                     .text_color(ink);
                 // egui viewport focused SetFocus/?
@@ -10393,6 +10434,7 @@ if let Some(p) = self.dbg_page {
                     DbgView::Todo => self.active = Module::Todo,
                     DbgView::Reminder => self.active = Module::Reminder,
                     DbgView::Weather => self.active = Module::Weather,
+                    DbgView::Life => self.active = Module::Life,
                 }
             }
         }
@@ -11083,7 +11125,7 @@ fn draw_nav_icon(painter: &egui::Painter, kind: u8, c: egui::Pos2, size: f32, co
         }
         4 => {
             //  +  + 
-            let f = size / 24.0;
+            let f = size / 24.0 * 1.28;
             let cx = c.x;
             let top = c.y - 8.5 * f;
             let rim = c.y + 4.0 * f;
@@ -11103,6 +11145,20 @@ fn draw_nav_icon(painter: &egui::Painter, kind: u8, c: egui::Pos2, size: f32, co
                 egui::Stroke::new(1.6 * f, color),
             );
             painter.circle_filled(egui::pos2(cx, rim + 2.6 * f), 1.5 * f, color);
+        }
+        5 => {
+            // 四角星（生活）
+            let f = size / 24.0;
+            let r = 9.5 * f;
+            let ri = 3.2 * f;
+            let mut pts: Vec<egui::Pos2> = Vec::new();
+            for k in 0..8 {
+                let ang = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::FRAC_PI_4;
+                let rad = if k % 2 == 0 { r } else { ri };
+                pts.push(egui::pos2(c.x + rad * ang.cos(), c.y + rad * ang.sin()));
+            }
+            pts.push(pts[0]);
+            painter.add(egui::Shape::line(pts, egui::Stroke::new(1.6 * f, color)));
         }
         _ => { painter.text(c, egui::Align2::CENTER_CENTER, "\u{E753}", icon_font(size * 1.15), color); } // Cloud
     }
