@@ -5611,17 +5611,19 @@ if self.show_rail_update() {
             enabled: bool,
             repeat: bool,
             custom: bool,
+            interval_min: u32,
         }
         let now = now_secs();
         let mk = |r: &Reminder| RRow {
             id: r.id,
             name: r.name.clone(),
             icon: r.icon,
-            sub: format!("每{}分钟", r.interval_min),
+            sub: format!("每 {} 分钟", r.interval_min),
             cd: self.remind_cd(r, now),
             enabled: r.enabled,
             repeat: r.repeat,
             custom: r.custom,
+            interval_min: r.interval_min,
         };
         let health: Vec<RRow> = self.reminders.iter().filter(|r| !r.custom).map(|r| mk(r)).collect();
         let customv: Vec<RRow> = self.reminders.iter().filter(|r| r.custom).map(|r| mk(r)).collect();
@@ -5675,23 +5677,28 @@ if self.show_rail_update() {
                 let irect = egui::Rect::from_center_size(egui::pos2(x0 + 15.0, *y + row_h * 0.5), egui::vec2(24.0, 24.0));
                 cp.rect_filled(irect, 8.0, egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], (a as f32 * 0.16) as u8));
                 Self::draw_remind_icon(cp, r.icon, irect.center(), 16.0, cc, 1.4);
-                let name_dy = if r.repeat { -7.0 } else { 0.0 };
+                let name_dy = -7.0;
                 cp.text(egui::pos2(x0 + 34.0, *y + row_h * 0.5 + name_dy), egui::Align2::LEFT_CENTER, &r.name, bold_font(12.5), ink);
-                if r.repeat {
-                    cp.text(egui::pos2(x0 + 34.0, *y + row_h * 0.5 + 8.0), egui::Align2::LEFT_CENTER, &r.sub, egui::FontId::proportional(9.5), muted2);
-                }
-                //  / 
+                // 标签：循环/一次，循环型额外显示「每 N 分钟」
                 {
                     let name_w = ui.fonts(|f| f.layout_no_wrap(r.name.clone(), bold_font(12.5), ink).size().x);
+                    let tag_font = bold_font(8.5);
+                    let mut tx = x0 + 34.0 + name_w + 8.0;
+                    let tag_ty = *y + row_h * 0.5 + name_dy - 7.5;
                     let tag_txt = if r.repeat { "循环" } else { "一次" };
-                    let tag_col = if r.repeat { accent } else { egui::Color32::from_rgba_unmultiplied(230, 178, 60, a) };
-                    let tagw = if r.repeat { 30.0 } else { 30.0 };
-                    let tag_rect = egui::Rect::from_min_size(
-                        egui::pos2(x0 + 34.0 + name_w + 8.0, *y + row_h * 0.5 + name_dy - 7.5),
-                        egui::vec2(tagw, 15.0),
-                    );
-                    cp.rect_stroke(tag_rect, 7.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(if r.repeat {52} else {230}, if r.repeat {211} else {178}, if r.repeat {153} else {60}, (a as f32 * 0.38) as u8)), egui::StrokeKind::Inside);
-                    cp.text(tag_rect.center(), egui::Align2::CENTER_CENTER, tag_txt, bold_font(8.5), tag_col);
+                    let (cr_, cg_, cb_) = if r.repeat { (52.0, 211.0, 153.0) } else { (230.0, 178.0, 60.0) };
+                    let w1 = ui.fonts(|f| f.layout_no_wrap(tag_txt.to_string(), tag_font.clone(), ink).size().x) + 16.0;
+                    let r1 = egui::Rect::from_min_size(egui::pos2(tx, tag_ty), egui::vec2(w1, 15.0));
+                    cp.rect_stroke(r1, 7.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(cr_ as u8, cg_ as u8, cb_ as u8, (a as f32 * 0.38) as u8)), egui::StrokeKind::Inside);
+                    cp.text(r1.center(), egui::Align2::CENTER_CENTER, tag_txt, tag_font.clone(), egui::Color32::from_rgba_unmultiplied(cr_ as u8, cg_ as u8, cb_ as u8, a));
+                    tx += w1 + 6.0;
+                    if r.repeat {
+                        let t2 = format!("每 {} 分钟", r.interval_min);
+                        let w2 = ui.fonts(|f| f.layout_no_wrap(t2.clone(), tag_font.clone(), ink).size().x) + 16.0;
+                        let r2 = egui::Rect::from_min_size(egui::pos2(tx, tag_ty), egui::vec2(w2, 15.0));
+                        cp.rect_stroke(r2, 7.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(150, 158, 175, (a as f32 * 0.30) as u8)), egui::StrokeKind::Inside);
+                        cp.text(r2.center(), egui::Align2::CENTER_CENTER, &t2, tag_font, muted2);
+                    }
                 }
                 let tw = 34.0;
                 let th = 18.0;
@@ -5945,7 +5952,7 @@ if self.show_rail_update() {
         let te = ui
             .scope(|ui| {
                 let v = ui.visuals_mut();
-                v.text_cursor.stroke = egui::Stroke::new(1.6, accent);
+                v.text_cursor.stroke = egui::Stroke::new(1.6, egui::Color32::from_rgb(233, 236, 242));
                 v.extreme_bg_color = egui::Color32::TRANSPARENT;
                 let mut child = ui.new_child(
                     egui::UiBuilder::new()
@@ -6017,12 +6024,13 @@ if self.show_rail_update() {
                 .frame(false)
                 .id(interval_id)
                 .char_limit(4)
+                .horizontal_align(egui::Align::Center)
                 .font(egui::FontId::proportional(12.5))
                 .text_color(ink);
             ui.scope(|ui| {
                 let v = ui.visuals_mut();
                 v.extreme_bg_color = egui::Color32::TRANSPARENT;
-                v.text_cursor.stroke = egui::Stroke::new(1.6, accent);
+                v.text_cursor.stroke = egui::Stroke::new(1.6, egui::Color32::from_rgb(233, 236, 242));
                 ui.put(ibox, ite);
             });
             if iforce { let r = ivp_before; ui.ctx().input_mut(|i| i.focused = r); }
