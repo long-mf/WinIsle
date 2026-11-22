@@ -8903,7 +8903,7 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
         painter.text(egui::pos2(left, y), egui::Align2::LEFT_TOP, "歌词", egui::FontId::proportional(13.0), muted2);
         y += label_h;
         // 
-        row_label(painter, y, "换败滚动动画", ink);
+        row_label(painter, y, "换行滚动动画", ink);
         { let trect = tg(y); if let Some(v) = Self::draw_toggle(ui, painter, trect, self.cfg.roll_anim, ui.id().with("tg_roll"), accent, a, true) { self.cfg.roll_anim = v; changed = true; } }
         y += row_h;
         //  / 
