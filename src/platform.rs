@@ -642,6 +642,65 @@ pub fn set_activatable(hwnd: HWND, on: bool) {
     }
 }
 
+/// 只放开/收回「可被点击激活」这一属性（WS_EX_NOACTIVATE），**不主动抢焦点**。
+/// 用于鼠标悬停在“添加待办”输入行上时预先放开：这样随后这一下点击会以 MA_ACTIVATE
+/// 送达窗口，窗口在点击瞬间即被系统激活、键盘焦点落到输入框，用户点开就能直接打字；
+/// 而悬停本身不会抢走前台焦点（此处不调用 SetForegroundWindow/SetFocus）。
+pub fn set_activatable_soft(hwnd: HWND, on: bool) {
+    if hwnd == 0 {
+        return;
+    }
+    ACTIVATABLE.store(if on { 1 } else { 0 }, Ordering::Relaxed);
+    unsafe {
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let new = if on {
+            ex & !WS_EX_NOACTIVATE
+        } else {
+            ex | WS_EX_NOACTIVATE
+        };
+        if new != ex {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new);
+        }
+    }
+}
+
+/// 当前是否已放开「可被点击激活」（即悬停预放开后仍处于打开状态）。
+pub fn is_activatable() -> bool {
+    ACTIVATABLE.load(Ordering::Relaxed) != 0
+}
+
+/// 强制把本窗口切到前台并交给键盘焦点（用于用户点开需要打字的输入框时）。
+/// 采用 AttachThreadInput 规避 Windows 对非前台进程 SetForegroundWindow 的限制：
+/// 临时把本线程输入队列挂到当前前台线程上，置前后再解绑。仅在用户主动进入输入态时调用。
+pub fn force_foreground(hwnd: HWND) {
+    if hwnd == 0 {
+        return;
+    }
+    unsafe {
+        // 先确保窗口不再带 WS_EX_NOACTIVATE，否则 SetForegroundWindow/SetFocus 会被系统忽略，
+        // winit 也不会收到 Focused(true)，egui 的 i.focused 一直为 false（插入符因此不画）。
+        ACTIVATABLE.store(1, Ordering::Relaxed);
+        let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        if (ex & WS_EX_NOACTIVATE) != 0 {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex & !WS_EX_NOACTIVATE);
+        }
+        let fg = GetForegroundWindow();
+        let fg_tid = if fg == 0 { 0 } else { GetWindowThreadProcessId(fg, std::ptr::null_mut()) };
+        let me_tid = GetCurrentThreadId();
+        let attached = fg_tid != 0 && fg_tid != me_tid && AttachThreadInput(me_tid, fg_tid, 1) != 0;
+        BringWindowToTop(hwnd);
+        SetForegroundWindow(hwnd);
+        SetFocus(hwnd);
+        if attached {
+            AttachThreadInput(me_tid, fg_tid, 0);
+        }
+        if std::env::var_os("WINISLE_FOCUS_LOG").is_some() {
+            eprintln!("[fgdbg] hwnd={} old_fg={} fg_tid={} me_tid={} attached={} new_fg={}",
+                hwnd, fg, fg_tid, me_tid, attached, GetForegroundWindow());
+        }
+    }
+}
+
 /// 清除窗口区域（恢复整窗矩形）。展开态使用。
 pub fn clear_window_region(hwnd: HWND) {
     if hwnd == 0 {
@@ -775,7 +834,16 @@ pub fn ensure_island_style(hwnd: HWND) {
             STYLE_READY.store(false, Ordering::Relaxed);
         }
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        let new_ex = ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+        // 尊重当前「可激活」状态：输入/搜索需要键盘时不能把这期间打开的激活又关回去。
+        // 否则后台穿透轮询每 ~192ms（n%12）重断言样式时会把 WS_EX_NOACTIVATE 重新加上，
+        // 窗口被周期性去激活 → egui 的 i.focused 变 false → 输入框光标消失、打不了字。
+        let activatable = ACTIVATABLE.load(Ordering::Relaxed) != 0;
+        let mut new_ex = ex | WS_EX_TOOLWINDOW;
+        if activatable {
+            new_ex &= !WS_EX_NOACTIVATE;
+        } else {
+            new_ex |= WS_EX_NOACTIVATE;
+        }
         if new_ex != ex {
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex);
             STYLE_READY.store(false, Ordering::Relaxed);
@@ -1017,6 +1085,10 @@ extern "system" {
     fn mouse_event(flags: u32, dx: u32, dy: u32, data: u32, extra: usize);
     fn SetForegroundWindow(h: HWND) -> i32;
     fn SetFocus(h: HWND) -> HWND;
+    fn GetForegroundWindow() -> HWND;
+    fn GetCurrentThreadId() -> u32;
+    fn AttachThreadInput(idAttach: u32, idAttachTo: u32, fAttach: i32) -> i32;
+    fn BringWindowToTop(h: HWND) -> i32;
     fn IsIconic(h: HWND) -> i32;
 }
 unsafe extern "system" fn enum_netease_cb(hwnd: HWND, l: isize) -> i32 {
@@ -1891,4 +1963,19 @@ pub fn debug_trial_entries() -> Vec<(String, f32)> {
     unsafe { CloseHandle(h) };
     out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)));
     out
+}
+
+/// 取屏幕某点的感知亮度（0..1），用于让霓虹边缘在浅色壁纸上也看得清。
+pub fn screen_luminance_at(x: i32, y: i32) -> f32 {
+    unsafe {
+        let hdc = GetDC(0);
+        if hdc == 0 { return 0.0; }
+        let px = GetPixel(hdc, x, y);
+        ReleaseDC(0, hdc);
+        if px == 0xFFFF_FFFF { return 0.0; }
+        let r = (px & 0xff) as f32;
+        let g = ((px >> 8) & 0xff) as f32;
+        let b = ((px >> 16) & 0xff) as f32;
+        (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+    }
 }
