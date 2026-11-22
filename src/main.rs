@@ -4774,44 +4774,30 @@ let dur = self.duration_est();
         //  () / 
 let btn_y = rect.top() + CONTENT_PAD_T + 108.0 - 10.0;
         let mut clicked: Option<&str> = None;
-        let fade = a as f32 / 255.0;
-        let prev_c = egui::pos2(tx + 9.0, btn_y);
-        // 图标左边缘与下方进度条起点对齐，热区从内容左边界开始。
-        let rprev = egui::Rect::from_min_max(egui::pos2(tx, btn_y - 16.0), egui::pos2(tx + 30.0, btn_y + 16.0));
+        let prev_c = egui::pos2(tx + 12.0, btn_y);
+        let rprev = egui::Rect::from_center_size(prev_c, egui::vec2(22.0, 22.0));
         self.ctrl_hit.push(rprev);
         let resp_prev = ui.interact(rprev, ui.id().with("mctrl_prev"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        let hp_prev = ui.ctx().animate_bool_with_time(ui.id().with("mctrl_prev_hover"), resp_prev.hovered(), 0.16);
-        if hp_prev > 0.001 {
-            painter.circle_filled(prev_c, 15.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, (hp_prev * 10.0 * fade) as u8));
-        }
-        draw_media_glyph(painter, prev_c, 17.0, 0, ink); // Previous
+        painter.circle_filled(prev_c, 11.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 18));
+        draw_media_glyph(painter, prev_c, 11.0, 0, ink); // Previous
         if resp_prev.clicked() {
             clicked = Some("prev");
         }
-        let play_c = egui::pos2(tx + 65.0, btn_y);
-        let rplay = egui::Rect::from_center_size(play_c, egui::vec2(56.0, 36.0));
+        let play_c = egui::pos2(tx + 58.0, btn_y);
+        let rplay = egui::Rect::from_center_size(play_c, egui::vec2(36.0, 36.0));
         self.ctrl_hit.push(rplay);
         let resp_play = ui.interact(rplay, ui.id().with("mctrl_play"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        let hp_play = ui.ctx().animate_bool_with_time(ui.id().with("mctrl_play_hover"), resp_play.hovered(), 0.16);
-        // 汽水式：中央是低饱和度的实心胶囊，不再用整块高饱和绿圆。
-        painter.rect_filled(
-            egui::Rect::from_center_size(play_c, egui::vec2(54.0, 34.0)),
-            egui::CornerRadius::same(17),
-            egui::Color32::from_rgba_unmultiplied(56, 214, 150, ((18.0 + 14.0 * hp_play) * fade) as u8),
-        );
-        draw_media_glyph(painter, play_c, 18.0, if self.is_playing() { 2 } else { 1 }, ink); // Pause / Play
+        painter.circle_filled(play_c, 17.0, green);
+        draw_media_glyph(painter, play_c, 13.0, if self.is_playing() { 2 } else { 1 }, ink); // Pause / Play
         if resp_play.clicked() {
             clicked = Some("play");
         }
-        let next_c = egui::pos2(tx + 113.0, btn_y);
-        let rnext = egui::Rect::from_center_size(next_c, egui::vec2(32.0, 32.0));
+        let next_c = egui::pos2(tx + 104.0, btn_y);
+        let rnext = egui::Rect::from_center_size(next_c, egui::vec2(22.0, 22.0));
         self.ctrl_hit.push(rnext);
         let resp_next = ui.interact(rnext, ui.id().with("mctrl_next"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        let hp_next = ui.ctx().animate_bool_with_time(ui.id().with("mctrl_next_hover"), resp_next.hovered(), 0.16);
-        if hp_next > 0.001 {
-            painter.circle_filled(next_c, 15.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, (hp_next * 10.0 * fade) as u8));
-        }
-        draw_media_glyph(painter, next_c, 17.0, 3, ink); // Next
+        painter.circle_filled(next_c, 11.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 18));
+        draw_media_glyph(painter, next_c, 11.0, 3, ink); // Next
         if resp_next.clicked() {
             clicked = Some("next");
         }
@@ -4826,9 +4812,9 @@ let state = self.music_link_state();
             let fade = (a as f32 / 255.0).clamp(0.0, 1.0);
             let pulse = 0.5 + 0.5 * (t as f32 * 2.0).sin();
             let dot_r = 4.6f32;
-            let dot = egui::pos2(cx1 - dot_r, btn_y - 6.0);
+            let dot = egui::pos2(cx1 - dot_r, btn_y);
             painter.text(
-                egui::pos2(dot.x - dot_r - 5.0, btn_y - 6.0),
+                egui::pos2(dot.x - dot_r - 5.0, btn_y),
                 egui::Align2::RIGHT_CENTER,
                 src_label(&self.music.app_id),
                 egui::FontId::proportional(10.5),
@@ -5804,7 +5790,7 @@ if self.show_rail_update() {
                 let tw = 34.0;
                 let th = 18.0;
                 // 6px
-                let tr = egui::Rect::from_min_size(egui::pos2(x1 - 12.0 - tw, *y + row_h * 0.5 - th * 0.5), egui::vec2(tw, th));
+                let tr = egui::Rect::from_min_size(egui::pos2(x1 - 3.0 - tw, *y + row_h * 0.5 - th * 0.5), egui::vec2(tw, th));
                 // 
                 let mut trash_rect = egui::Rect::from_min_size(egui::pos2(tr.left() - 30.0, *y + row_h * 0.5 - 10.0), egui::vec2(20.0, 20.0));
                 if r.custom {
