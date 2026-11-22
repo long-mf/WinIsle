@@ -574,6 +574,66 @@ fn icon_font(size: f32) -> egui::FontId {
     egui::FontId::new(size, egui::FontFamily::Name(Arc::from("icons")))
 }
 
+/// 音乐控制按钮的实心图标：上一首/播放/暂停/下一首。
+/// 用几何图形手绘，避免字体图标在不同字号下显得发细、发虚。
+fn draw_media_glyph(painter: &egui::Painter, center: egui::Pos2, size: f32, kind: u8, color: egui::Color32) {
+    let s = size;
+    let h = 0.42 * s;
+    let bar_w = 0.19 * s;
+    let bar = |x: f32| {
+        painter.rect_filled(
+            egui::Rect::from_center_size(egui::pos2(x, center.y), egui::vec2(bar_w, h * 2.0)),
+            egui::CornerRadius::same((bar_w * 0.35) as u8),
+            color,
+        );
+    };
+    match kind {
+        0 => {
+            // Previous: |◀
+            bar(center.x - 0.45 * s);
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(center.x + 0.42 * s, center.y - h),
+                    egui::pos2(center.x + 0.42 * s, center.y + h),
+                    egui::pos2(center.x - 0.28 * s, center.y),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        1 => {
+            // Play: ▶
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(center.x - 0.30 * s, center.y - h),
+                    egui::pos2(center.x - 0.30 * s, center.y + h),
+                    egui::pos2(center.x + 0.42 * s, center.y),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        2 => {
+            // Pause: ❚❚
+            bar(center.x - 0.22 * s);
+            bar(center.x + 0.22 * s);
+        }
+        _ => {
+            // Next: ▶|
+            bar(center.x + 0.45 * s);
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    egui::pos2(center.x - 0.42 * s, center.y - h),
+                    egui::pos2(center.x - 0.42 * s, center.y + h),
+                    egui::pos2(center.x + 0.28 * s, center.y),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+    }
+}
+
 /// HSV -> Color32
 fn hsv(h: f32, s: f32, v: f32, a: u8) -> egui::Color32 {
     let h = ((h % 360.0) + 360.0) % 360.0;
@@ -2267,8 +2327,15 @@ fn comp_gap(&self, prev: &str, cur: &str) -> f32 {
     /// 0 (id, )
     fn active_comps(&self) -> Vec<(String, f32)> {
         let mut out = Vec::new();
+        // 有提醒时：在最左侧插入一枚铃铛，替换频谱槽位（不覆盖、不加宽）
+        if self.remind_alert.is_some() {
+            out.push(("bell".to_string(), 24.0));
+        }
         for (id, on) in self.comp_order() {
             if !on {
+                continue;
+            }
+            if self.remind_alert.is_some() && id == "spectrum" {
                 continue;
             }
             let w = self.comp_eff_w(&id);
@@ -3612,6 +3679,29 @@ if self.hwnd == 0 {
             }
             let x1 = (x + *cw).min(pill.right() - 2.0);
             match id.as_str() {
+                "bell" => {
+                    let icon = self.remind_alert
+                        .and_then(|id| self.reminders.iter().find(|r| r.id == id).map(|r| r.icon))
+                        .unwrap_or(1);
+                    let col = remind_color(icon);
+                    let cc = egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], a);
+                    let cx = (x + x1) * 0.5;
+                    let pulse = 0.5 + 0.5 * (t * (std::f64::consts::TAU / 1.1)).sin() as f32;
+                    // 两圈波纹扩散（1.1s 与边缘呼吸同频）
+                    for k in 0..2 {
+                        let ph = (((t / 1.1) + k as f64 * 0.5) % 1.0) as f32;
+                        let rr = 6.5 + ph * 8.5;
+                        let ra = (a as f32 * 0.38 * (1.0 - ph)) as u8;
+                        painter.circle_stroke(
+                            egui::pos2(cx, cy),
+                            rr,
+                            egui::Stroke::new(1.1, egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], ra)),
+                        );
+                    }
+                    let sz = 15.0 + 2.0 * pulse;
+                    draw_nav_icon(painter, 4, egui::pos2(cx, cy), sz, cc);
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+                }
                 "spectrum" => {
                     self.draw_spectrum(painter, x, base_y, green, t);
                 }
@@ -4684,33 +4774,44 @@ let dur = self.duration_est();
         //  () / 
 let btn_y = rect.top() + CONTENT_PAD_T + 108.0 - 10.0;
         let mut clicked: Option<&str> = None;
-        let prev_c = egui::pos2(tx + 12.0, btn_y);
-        let rprev = egui::Rect::from_center_size(prev_c, egui::vec2(22.0, 22.0));
+        let fade = a as f32 / 255.0;
+        let prev_c = egui::pos2(tx + 9.0, btn_y);
+        // 图标左边缘与下方进度条起点对齐，热区从内容左边界开始。
+        let rprev = egui::Rect::from_min_max(egui::pos2(tx, btn_y - 16.0), egui::pos2(tx + 30.0, btn_y + 16.0));
         self.ctrl_hit.push(rprev);
         let resp_prev = ui.interact(rprev, ui.id().with("mctrl_prev"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        painter.circle_filled(prev_c, 11.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 18));
-        let c_dn = egui::Color32::from_rgba_unmultiplied(200, 210, 220, 200);
-        painter.text(prev_c, egui::Align2::CENTER_CENTER, "\u{E892}", icon_font(12.0), c_dn); // Previous
+        let hp_prev = ui.ctx().animate_bool_with_time(ui.id().with("mctrl_prev_hover"), resp_prev.hovered(), 0.16);
+        if hp_prev > 0.001 {
+            painter.circle_filled(prev_c, 15.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, (hp_prev * 10.0 * fade) as u8));
+        }
+        draw_media_glyph(painter, prev_c, 17.0, 0, ink); // Previous
         if resp_prev.clicked() {
             clicked = Some("prev");
         }
-        let play_c = egui::pos2(tx + 58.0, btn_y);
-        let rplay = egui::Rect::from_center_size(play_c, egui::vec2(36.0, 36.0));
+        let play_c = egui::pos2(tx + 65.0, btn_y);
+        let rplay = egui::Rect::from_center_size(play_c, egui::vec2(56.0, 36.0));
         self.ctrl_hit.push(rplay);
         let resp_play = ui.interact(rplay, ui.id().with("mctrl_play"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        painter.circle_filled(play_c, 17.0, green);
-        let ic = egui::Color32::from_rgba_unmultiplied(10, 20, 16, a);
-        let play_glyph = if self.is_playing() { "\u{E769}" } else { "\u{E768}" }; // Pause / Play
-        painter.text(play_c, egui::Align2::CENTER_CENTER, play_glyph, icon_font(14.0), ic);
+        let hp_play = ui.ctx().animate_bool_with_time(ui.id().with("mctrl_play_hover"), resp_play.hovered(), 0.16);
+        // 汽水式：中央是低饱和度的实心胶囊，不再用整块高饱和绿圆。
+        painter.rect_filled(
+            egui::Rect::from_center_size(play_c, egui::vec2(54.0, 34.0)),
+            egui::CornerRadius::same(17),
+            egui::Color32::from_rgba_unmultiplied(56, 214, 150, ((18.0 + 14.0 * hp_play) * fade) as u8),
+        );
+        draw_media_glyph(painter, play_c, 18.0, if self.is_playing() { 2 } else { 1 }, ink); // Pause / Play
         if resp_play.clicked() {
             clicked = Some("play");
         }
-        let next_c = egui::pos2(tx + 104.0, btn_y);
-        let rnext = egui::Rect::from_center_size(next_c, egui::vec2(22.0, 22.0));
+        let next_c = egui::pos2(tx + 113.0, btn_y);
+        let rnext = egui::Rect::from_center_size(next_c, egui::vec2(32.0, 32.0));
         self.ctrl_hit.push(rnext);
         let resp_next = ui.interact(rnext, ui.id().with("mctrl_next"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-        painter.circle_filled(next_c, 11.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 18));
-        painter.text(next_c, egui::Align2::CENTER_CENTER, "\u{E893}", icon_font(12.0), c_dn); // Next
+        let hp_next = ui.ctx().animate_bool_with_time(ui.id().with("mctrl_next_hover"), resp_next.hovered(), 0.16);
+        if hp_next > 0.001 {
+            painter.circle_filled(next_c, 15.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, (hp_next * 10.0 * fade) as u8));
+        }
+        draw_media_glyph(painter, next_c, 17.0, 3, ink); // Next
         if resp_next.clicked() {
             clicked = Some("next");
         }

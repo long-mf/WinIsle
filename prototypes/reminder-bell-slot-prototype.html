@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>WinIsle · 收起态铃铛占位提醒</title>
+<style>
+  :root{--ink:#E9ECF2;--muted:#969EAF;--muted2:#6B7180;--blue:#39C7FF;--amber:#E6B23C;--mint:#34D399}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f1ece1;color:#2a2f38;font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:44px 52px 64px}
+  .eyebrow{font-size:11.5px;letter-spacing:.22em;color:#9a9384;font-weight:700}
+  h1{font-size:27px;margin:9px 0 7px}
+  .sub{color:#6d6a60;font-size:13.5px;line-height:1.7;max-width:900px;margin-bottom:28px}
+
+  .sec{display:flex;align-items:baseline;gap:12px;margin:30px 0 14px}
+  .sec .n{width:28px;height:28px;border-radius:8px;background:#2a2f38;color:#f1ece1;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
+  .sec h2{font-size:17px;margin:0}.sec p{margin:0;color:#7d7a70;font-size:12px}
+
+  .card{background:#faf7f0;border:1px solid #e4ddcf;border-radius:14px;padding:16px 18px 12px;margin-bottom:16px;box-shadow:0 1px 0 #fff inset,0 9px 22px -18px rgba(40,35,20,.5)}
+  .cap{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+  .cap b{font-size:13px}.cap .t{font-size:11px;color:#8b877c}
+  .tag{margin-left:auto;font-size:10px;font-weight:800;color:#1f7a58;background:#d9f3e8;border-radius:999px;padding:2px 8px}
+  .stage{height:66px;border-radius:10px;background:#e9e3d6;display:flex;align-items:center;justify-content:center}
+
+  /* ============ 真实收起胶囊：372 × 34，不覆盖、不加宽 ============ */
+  .pillWrap{position:relative;height:34px;width:372px;transform:translateY(-4px)}
+  .pill{position:relative;width:372px;height:34px;border-radius:0 0 17px 17px;
+    background:linear-gradient(180deg,#20262f,#171c24);display:flex;align-items:center;
+    padding:0 11px 0 10px;gap:9px;color:var(--ink);overflow:hidden;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 8px 18px -10px rgba(0,0,0,.6)}
+  .pill .mod{display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+
+  .eq{display:flex;align-items:flex-end;gap:2px;height:14px}
+  .eq i{width:2.5px;border-radius:2px;background:var(--mint);animation:eq .9s ease-in-out infinite}
+  .eq i:nth-child(1){height:6px}.eq i:nth-child(2){height:12px;animation-delay:.15s}
+  .eq i:nth-child(3){height:9px;animation-delay:.3s}.eq i:nth-child(4){height:14px;animation-delay:.45s}
+  @keyframes eq{0%,100%{transform:scaleY(.55)}50%{transform:scaleY(1)}}
+
+  .lyr{flex:1 1 auto;min-width:0;overflow:hidden;font-size:11.5px;color:#c9d0dc;white-space:nowrap;
+    mask-image:linear-gradient(90deg,transparent 0,#000 10px,#000 calc(100% - 12px),transparent 100%);
+    -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 10px,#000 calc(100% - 12px),transparent 100%)}
+  .lyr span{display:inline-block;white-space:nowrap}
+  .tm{font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;color:#dbe2ec;margin-left:2px}
+
+  .bell{width:24px;height:26px;display:flex;align-items:center;justify-content:center;position:relative;color:var(--blue)}
+  .bell svg{display:block;overflow:visible}
+  .bell .rip{position:absolute;inset:-5px;border-radius:50%;border:1.3px solid currentColor;opacity:0}
+
+  /* 方案 A：钟摆摇摆 */
+  .bA .bell svg{transform-origin:50% 3px;animation:swing .62s cubic-bezier(.45,0,.55,1) infinite}
+  @keyframes swing{0%,100%{transform:rotate(-13deg)}50%{transform:rotate(13deg)}}
+  /* 方案 B：快速震颤 */
+  .bB .bell svg{animation:shake .16s linear infinite}
+  @keyframes shake{0%{transform:translateX(0) rotate(0)}25%{transform:translateX(-1.6px) rotate(-7deg)}50%{transform:translateX(0)}75%{transform:translateX(1.6px) rotate(7deg)}100%{transform:translateX(0)}}
+  /* 方案 C：脉冲 + 波纹 */
+  .bC .bell svg{transform-origin:50% 55%;animation:pulse 1.1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{transform:scale(1)}45%{transform:scale(1.16)}}
+  .bC .bell .rip{animation:rip 1.1s ease-out infinite}
+  .bC .bell .rip.r2{animation-delay:.55s}
+  @keyframes rip{0%{transform:scale(.55);opacity:.55}80%{opacity:0}100%{transform:scale(1.75);opacity:0}}
+
+  /* 边缘呼吸：已有能力，仅作叠加演示 */
+  .glow::after{content:"";position:absolute;inset:-1px;border-radius:0 0 18px 18px;pointer-events:none;
+    box-shadow:0 0 0 1px rgba(57,199,255,.22),0 0 14px 1px rgba(57,199,255,.35);
+    animation:breathe 1.1s ease-in-out infinite;animation-delay:-.55s}
+  @keyframes breathe{0%,100%{opacity:.30}50%{opacity:.95}}
+
+  .note{font-size:12.3px;color:#5f5c53;line-height:1.7;margin-top:4px}
+  .note b{color:#2a2f38}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px 26px;margin-top:8px}
+  .badge{display:inline-block;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:999px;background:#2a2f38;color:#f1ece1;margin-right:5px}
+</style>
+</head>
+<body>
+  <div class="eyebrow">WinIsle · Collapsed Notch</div>
+  <h1>收起态 · 铃铛「占位」提醒</h1>
+  <div class="sub">
+    不覆盖、不加宽：有提醒时，用一枚手绘铃铛<strong>替换左侧的频谱模块</strong>（占它原来的槽位），
+    歌词与时间照常显示；胶囊边缘呼吸光继续叠加。也就是说——外壳还是那个 372×34 的胶囊，只是在里面多了一个会动的铃铛图标。
+  </div>
+
+  <div class="sec"><span class="n">0</span><h2>对照：无提醒 / 有提醒</h2><p>同一胶囊，只换左侧一格。</p></div>
+  <div class="card">
+    <div class="cap"><b>无提醒</b><span class="t">左侧是音乐频谱，无边缘光</span></div>
+    <div class="stage">
+      <div class="pillWrap"><div class="pill">
+        <span class="mod"><span class="eq"><i></i><i></i><i></i><i></i></span></span>
+        <span class="lyr"><span>风继续吹 不忍远离 · 心里极渴望 希望留下伴着你</span></span>
+        <span class="tm">15:30</span>
+      </div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="cap"><b>有提醒</b><span class="t">频谱 → 铃铛（同槽位），歌词/时间保留，边缘继续呼吸</span><span class="tag">不覆盖</span></div>
+    <div class="stage">
+      <div class="pillWrap"><div class="pill glow bA">
+        <span class="mod"><span class="bell">
+          <svg width="17" height="19" viewBox="0 0 24 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.2c-3.7 0-6.1 2.7-6.1 6.2v4.1c0 1.1-.6 2.1-1.5 3.1h15.2c-.9-1-1.5-2-1.5-3.1V9.4c0-3.5-2.4-6.2-6.1-6.2Z"/>
+            <path d="M9.8 16.6a2.2 2.2 0 0 0 4.4 0"/><path d="M12 1.2v1.6"/>
+          </svg></span></span>
+        <span class="lyr"><span>风继续吹 不忍远离 · 心里极渴望 希望留下伴着你</span></span>
+        <span class="tm">15:30</span>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="sec"><span class="n">1</span><h2>铃铛的三种「振动语言」</h2><p>外壳与排版完全一致，只换铃铛的动。</p></div>
+
+  <div class="card">
+    <div class="cap"><b>A · 钟摆摇摆</b><span class="t">0.62s / ±13°</span><span class="tag">推荐</span></div>
+    <div class="stage"><div class="pillWrap"><div class="pill glow bA" style="color:#39C7FF">
+      <span class="mod"><span class="bell">
+        <svg width="17" height="19" viewBox="0 0 24 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.2c-3.7 0-6.1 2.7-6.1 6.2v4.1c0 1.1-.6 2.1-1.5 3.1h15.2c-.9-1-1.5-2-1.5-3.1V9.4c0-3.5-2.4-6.2-6.1-6.2Z"/>
+          <path d="M9.8 16.6a2.2 2.2 0 0 0 4.4 0"/><path d="M12 1.2v1.6"/>
+        </svg></span></span>
+      <span class="lyr"><span>喝水时间到 · 距上次 45 分钟</span></span><span class="tm">15:30</span>
+    </div></div></div>
+  </div>
+
+  <div class="card">
+    <div class="cap"><b>B · 快速震颤</b><span class="t">0.16s / 敲击感</span></div>
+    <div class="stage"><div class="pillWrap"><div class="pill glow bB" style="color:#E6B23C">
+      <span class="mod"><span class="bell">
+        <svg width="17" height="19" viewBox="0 0 24 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.2c-3.7 0-6.1 2.7-6.1 6.2v4.1c0 1.1-.6 2.1-1.5 3.1h15.2c-.9-1-1.5-2-1.5-3.1V9.4c0-3.5-2.4-6.2-6.1-6.2Z"/>
+          <path d="M9.8 16.6a2.2 2.2 0 0 0 4.4 0"/><path d="M12 1.2v1.6"/>
+        </svg></span></span>
+      <span class="lyr"><span>该起来活动一下了 · 已连续久坐 45 分钟</span></span><span class="tm">15:30</span>
+    </div></div></div>
+  </div>
+
+  <div class="card">
+    <div class="cap"><b>C · 脉冲 + 波纹</b><span class="t">1.1s / 与边缘光同频</span></div>
+    <div class="stage"><div class="pillWrap"><div class="pill glow bC" style="color:#34D399">
+      <span class="mod"><span class="bell">
+        <span class="rip"></span><span class="rip r2"></span>
+        <svg width="17" height="19" viewBox="0 0 24 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.2c-3.7 0-6.1 2.7-6.1 6.2v4.1c0 1.1-.6 2.1-1.5 3.1h15.2c-.9-1-1.5-2-1.5-3.1V9.4c0-3.5-2.4-6.2-6.1-6.2Z"/>
+          <path d="M9.8 16.6a2.2 2.2 0 0 0 4.4 0"/><path d="M12 1.2v1.6"/>
+        </svg></span></span>
+      <span class="lyr"><span>远眺一下，放松眼睛 · 用眼 20 分钟</span></span><span class="tm">15:30</span>
+    </div></div></div>
+  </div>
+
+  <div class="sec"><span class="n">2</span><h2>天气模块场景（同一套占位规则）</h2><p>铃铛依然只占最左一格。</p></div>
+  <div class="card">
+    <div class="stage"><div class="pillWrap"><div class="pill glow bA" style="color:#39C7FF">
+      <span class="mod"><span class="bell">
+        <svg width="17" height="19" viewBox="0 0 24 26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3.2c-3.7 0-6.1 2.7-6.1 6.2v4.1c0 1.1-.6 2.1-1.5 3.1h15.2c-.9-1-1.5-2-1.5-3.1V9.4c0-3.5-2.4-6.2-6.1-6.2Z"/>
+          <path d="M9.8 16.6a2.2 2.2 0 0 0 4.4 0"/><path d="M12 1.2v1.6"/>
+        </svg></span></span>
+      <span class="lyr"><span>喝水时间到 · 25° 晴 · 空气优</span></span><span class="tm">15:30</span>
+    </div></div></div>
+  </div>
+
+  <div class="sec"><span class="n">3</span><h2>设计要点</h2><p>为什么只做「图标占位」。</p></div>
+  <div class="row2">
+    <div class="note"><span class="badge">01</span><b>只占频谱那一格</b>：宽度 24px 左右，与频谱同槽；胶囊总宽、圆角、歌词与时间位置都不变，不会覆盖任何东西。</div>
+    <div class="note"><span class="badge">02</span><b>边缘呼吸继续保留</b>：整体提示仍由胶囊边缘的 1.1s 呼吸光承担；铃铛只是“里面多一个动的东西”，两者叠加不冲突。</div>
+    <div class="note"><span class="badge">03</span><b>只动铃铛，不动布局</b>：动画只作用于 SVG 的 transform，占位尺寸固定，播放时不会把歌词/时间挤动。</div>
+    <div class="note"><span class="badge">04</span><b>颜色跟提醒类型</b>：久坐琥珀 / 喝水天蓝 / 护眼薄荷 / 自定义紫罗兰；铃铛换色、边缘光同步换色。</div>
+    <div class="note"><span class="badge">05</span><b>多提醒只用一枚铃铛</b>：即使队列里有多条，胶囊里也只显示一枚铃铛（不堆叠），数量在展开后的列表里处理。</div>
+    <div class="note"><span class="badge">06</span><b>60fps</b>：纯 transform/opacity 关键帧；手绘 SVG，不用字体 emoji。</div>
+  </div>
+</body>
+</html>
