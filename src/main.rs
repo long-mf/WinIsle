@@ -3385,31 +3385,6 @@ if self.hwnd == 0 {
                         );
                     }
                 }
-                // 仅左侧吸附需要补呼吸：胶囊贴屏幕左边，外侧光晕的左沿被裁掉，左边看起来是静的。
-                // 右侧吸附原效果用户确认良好，保持原样不动；这里只沿左侧内沿补一条随呼吸明暗的竖光。
-                if matches!(self.cfg.position, DockPosition::LeftCenter) {
-                    let lx = pill.left() + 1.4;
-                    let ia = (190.0 * pulse * vis).min(255.0) as u8;
-                    if ia > 0 {
-                        painter.line_segment(
-                            [egui::pos2(lx, pill.top() + 1.0), egui::pos2(lx, pill.bottom() - 1.0)],
-                            egui::Stroke::new(
-                                1.2 + 0.6 * pulse,
-                                egui::Color32::from_rgba_unmultiplied(cc[0], cc[1], cc[2], ia),
-                            ),
-                        );
-                    }
-                    let ia2 = (70.0 * pulse * vis).min(255.0) as u8;
-                    if ia2 > 0 {
-                        painter.line_segment(
-                            [egui::pos2(lx + 1.6, pill.top() + 2.5), egui::pos2(lx + 1.6, pill.bottom() - 2.5)],
-                            egui::Stroke::new(
-                                1.4,
-                                egui::Color32::from_rgba_unmultiplied(cc[0], cc[1], cc[2], ia2),
-                            ),
-                        );
-                    }
-                }
                 // 贴顶时遮掉最上沿那一小条，避免“顶部一条横光”，只留左/右/下三边轮廓闪
                 if pill.top() <= 2.0 {
                     painter.rect_filled(
