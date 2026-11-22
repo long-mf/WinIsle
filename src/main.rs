@@ -8740,7 +8740,7 @@ if let Ok(v) = std::env::var("WINISLE_SET_SCROLL") {
         };
 
         //   +
-        group_header(painter, y, "模块排序");
+        group_header(painter, y, "收起态展示模块及排序");
         y += label_h;
         {
             let mut order = self.comp_order();
