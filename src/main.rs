@@ -3385,24 +3385,28 @@ if self.hwnd == 0 {
                         );
                     }
                 }
-                // 左右吸附时胶囊贴屏幕边，外侧光晕在贴边侧被窗口/屏幕裁掉，只剩余下几边在呼吸。
-                // 贴边那一侧改用「内描边」呼吸，保证左边吸附时左边缘同样有可见的呼吸光。
-                if matches!(self.cfg.position, DockPosition::LeftCenter | DockPosition::RightCenter) {
-                    let ip = pill.shrink(1.6);
-                    let irr = (cr.ne as f32)
-                        .min(ip.height() * 0.5)
-                        .min(ip.width() * 0.5) as u8;
-                    let ir = egui::CornerRadius { nw: 0, ne: irr, sw: 0, se: irr };
+                // 仅左侧吸附需要补呼吸：胶囊贴屏幕左边，外侧光晕的左沿被裁掉，左边看起来是静的。
+                // 右侧吸附原效果用户确认良好，保持原样不动；这里只沿左侧内沿补一条随呼吸明暗的竖光。
+                if matches!(self.cfg.position, DockPosition::LeftCenter) {
+                    let lx = pill.left() + 1.4;
                     let ia = (190.0 * pulse * vis).min(255.0) as u8;
                     if ia > 0 {
-                        painter.rect_stroke(
-                            ip,
-                            ir,
+                        painter.line_segment(
+                            [egui::pos2(lx, pill.top() + 1.0), egui::pos2(lx, pill.bottom() - 1.0)],
                             egui::Stroke::new(
                                 1.2 + 0.6 * pulse,
                                 egui::Color32::from_rgba_unmultiplied(cc[0], cc[1], cc[2], ia),
                             ),
-                            egui::StrokeKind::Inside,
+                        );
+                    }
+                    let ia2 = (70.0 * pulse * vis).min(255.0) as u8;
+                    if ia2 > 0 {
+                        painter.line_segment(
+                            [egui::pos2(lx + 1.6, pill.top() + 2.5), egui::pos2(lx + 1.6, pill.bottom() - 2.5)],
+                            egui::Stroke::new(
+                                1.4,
+                                egui::Color32::from_rgba_unmultiplied(cc[0], cc[1], cc[2], ia2),
+                            ),
                         );
                     }
                 }
