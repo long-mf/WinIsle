@@ -81,6 +81,10 @@ const ERROR_ALREADY_EXISTS: u32 = 183;
 /// 返回 true 表示"已经有一个 WinIsle 在运行"（本次为新启动的重复实例，应立即退出）。
 /// 句柄故意不关闭，随进程存活保持有效；进程结束时由系统释放。
 pub fn ensure_single_instance() -> bool {
+    // 仅供开发/自动化测试：允许临时并行运行（正式版与开发版互不干扰地截图验证）。
+    if std::env::var_os("WINISLE_ALLOW_MULTI").is_some() {
+        return false;
+    }
     // Local\ 前缀：同一登录会话内唯一，不影响其他用户/会话。
     let name: Vec<u16> = "Local\\WinIsle_SingleInstance_v1\0".encode_utf16().collect();
     let handle = unsafe { CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };

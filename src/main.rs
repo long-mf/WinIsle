@@ -2336,11 +2336,13 @@ fn comp_base_w(&self, id: &str) -> f32 {
             "lyrics" => CW_LYRICS,
             "face" => self.face_slot_w(),
             "clock" => {
-                let mut w = self.w_clock_w.max(CW_CLOCK);
+                // 有升级标记时：收起态用升级标记“替换”时间模块（不额外占宽）；
+                // 展开态不经过这里，时间/面板保持原样。
                 if self.show_time_update() {
-                    w += UPD_BADGE_W + UPD_BADGE_GAP;
+                    UPD_BADGE_W
+                } else {
+                    self.w_clock_w.max(CW_CLOCK)
                 }
-                w
             }
             "weather" => self.weather_slot_w(),
             _ => 0.0,
@@ -3628,19 +3630,21 @@ if self.hwnd == 0 {
                     self.draw_marquee(&painter, text_rect, &text, egui::FontId::proportional(14.0), fg, t, false, self.cfg.edge_fade);
                 }
                 // 
-                time_rect = Some(painter.text(
-                    egui::pos2(pill.right() - 13.0, cy),
-                    egui::Align2::RIGHT_CENTER,
-                    &time_s,
-                    time_font,
-                    fg,
-                ));
+                // 收起态有升级标记时，用它替换时间（不再并排挤占宽度）
                 if self.show_time_update() {
                     let br = egui::Rect::from_min_size(
-                        egui::pos2(badge_left, cy - UPD_BADGE_H * 0.5),
+                        egui::pos2(pill.right() - 13.0 - UPD_BADGE_W, cy - UPD_BADGE_H * 0.5),
                         egui::vec2(UPD_BADGE_W, UPD_BADGE_H),
                     );
                     self.paint_update_pill(&painter, br, am);
+                } else {
+                    time_rect = Some(painter.text(
+                        egui::pos2(pill.right() - 13.0, cy),
+                        egui::Align2::RIGHT_CENTER,
+                        &time_s,
+                        time_font,
+                        fg,
+                    ));
                 }
             } else if self.face_mode_active() {
                 // + Otto 
@@ -3681,25 +3685,12 @@ if self.hwnd == 0 {
                 let col = egui::Color32::from_rgba_unmultiplied(238, 240, 246, centered_a);
                 let font = bold_font(self.cfg.font);
                 if self.show_time_update() {
-
-                    let time_w = painter
-                        .layout_no_wrap(s.clone(), font.clone(), col)
-                        .size()
-                        .x;
-                    let group_w = UPD_BADGE_W + UPD_BADGE_GAP + time_w;
-                    let start = pill.center().x - group_w * 0.5;
-                    let br = egui::Rect::from_min_size(
-                        egui::pos2(start, pill.center().y - UPD_BADGE_H * 0.5),
+                    // 有升级标记时替换掉时间
+                    let br = egui::Rect::from_center_size(
+                        pill.center(),
                         egui::vec2(UPD_BADGE_W, UPD_BADGE_H),
                     );
                     self.paint_update_pill(&painter, br, centered_a);
-                    time_rect = Some(painter.text(
-                        egui::pos2(start + UPD_BADGE_W + UPD_BADGE_GAP, pill.center().y - self.cfg.font * 0.06),
-                        egui::Align2::LEFT_CENTER,
-                        &s,
-                        font,
-                        col,
-                    ));
                 } else {
 
                     if let Some(w) = self.w_data.as_ref() {
@@ -4265,13 +4256,21 @@ fn draw_collapsed_lyrics(&mut self, painter: &egui::Painter, text_rect: egui::Re
         // 与天气温度同源：同一 bold 13.5 字体，时间槽宽按实测文字宽度自适应，
         // 不再用固定 34px 槽宽把 36px 的 HH:MM 左右各裁 1px。
         self.w_clock_w = painter.layout_no_wrap(s.clone(), fid.clone(), tcol).size().x;
-        let right = if self.show_time_update() { x1 - 2.0 } else { x1 };
         if self.show_time_update() {
-            let br = egui::Rect::from_min_size(egui::pos2(x, cy - UPD_BADGE_H * 0.5), egui::vec2(UPD_BADGE_W, UPD_BADGE_H));
+            // 收起态：升级标记替换时间模块（居中于原时间槽），不再并排显示时间
+            let br = egui::Rect::from_center_size(
+                egui::pos2((x + x1) * 0.5, cy),
+                egui::vec2(UPD_BADGE_W, UPD_BADGE_H),
+            );
             self.paint_update_pill(painter, br, a);
-            painter.text(egui::pos2(right, cy - 0.5), egui::Align2::RIGHT_CENTER, &s, fid, tcol);
         } else {
-            painter.text(egui::pos2((x + right) * 0.5, cy - 0.5), egui::Align2::CENTER_CENTER, &s, fid, tcol);
+            painter.text(
+                egui::pos2((x + x1) * 0.5, cy - 0.5),
+                egui::Align2::CENTER_CENTER,
+                &s,
+                fid,
+                tcol,
+            );
         }
     }
 
