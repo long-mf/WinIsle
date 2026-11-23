@@ -206,15 +206,8 @@ impl Default for LifeState {
     fn default() -> Self {
         LifeState {
             tab: 0,
-            birthdays: vec![
-                Birthday { id: 1, name: "妈妈".into(), lunar: true, year: 1968, month: 8, day: 15, leap: false, rel: "家人".into() },
-                Birthday { id: 2, name: "小林".into(), lunar: false, year: 1996, month: 3, day: 14, leap: false, rel: "朋友".into() },
-                Birthday { id: 3, name: "阿哲".into(), lunar: false, year: 1992, month: 12, day: 25, leap: false, rel: "同事".into() },
-            ],
-            anniversaries: vec![
-                Anniversary { id: 1, name: "结婚纪念日".into(), year: 2019, month: 5, day: 20, yearly: true, cat: "家庭".into() },
-                Anniversary { id: 2, name: "入职纪念日".into(), year: 2021, month: 7, day: 1, yearly: true, cat: "工作".into() },
-            ],
+            birthdays: vec![],
+            anniversaries: vec![],
             brackets: vec![],
             sub_start: String::new(),
             sub_end: String::new(),

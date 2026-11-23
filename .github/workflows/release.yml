@@ -50,6 +50,13 @@ jobs:
           cargo build --release
           if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
+      - name: Verify exe resources (icon/version)
+        shell: pwsh
+        run: |
+          $vi = (Get-Item target/release/winisle.exe).VersionInfo
+          Write-Host "FileDescription=$($vi.FileDescription) FileVersion=$($vi.FileVersion)"
+          if (-not $vi.FileDescription) { throw "exe resources missing: icon/version not embedded" }
+
       - name: Unit tests
         shell: pwsh
         run: |

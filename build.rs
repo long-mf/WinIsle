@@ -18,6 +18,52 @@ fn find_windres() -> Option<PathBuf> {
     if p.exists() {
         return Some(p);
     }
+    // 3) PATH (CI installs mingw and puts windres on PATH)
+    if let Ok(path) = env::var("PATH") {
+        for dir in env::split_paths(&path) {
+            let cand = dir.join("windres.exe");
+            if cand.exists() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+/// Locate rc.exe (Windows SDK) for MSVC builds.
+fn find_rc() -> Option<PathBuf> {
+    if let Ok(p) = env::var("WINISLE_RC") {
+        let p = PathBuf::from(p);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    if let Ok(path) = env::var("PATH") {
+        for dir in env::split_paths(&path) {
+            let cand = dir.join("rc.exe");
+            if cand.exists() {
+                return Some(cand);
+            }
+        }
+    }
+    for key in ["ProgramFiles(x86)", "ProgramFiles"] {
+        if let Ok(base) = env::var(key) {
+            let kits = PathBuf::from(base).join("Windows Kits").join("10").join("bin");
+            if let Ok(rd) = std::fs::read_dir(&kits) {
+                let mut vers: Vec<PathBuf> = rd.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+                vers.sort();
+                vers.reverse();
+                for v in vers {
+                    for arch in ["x64", "x86"] {
+                        let cand = v.join(arch).join("rc.exe");
+                        if cand.exists() {
+                            return Some(cand);
+                        }
+                    }
+                }
+            }
+        }
+    }
     None
 }
 
@@ -28,11 +74,38 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
+    let out_base = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let target = env::var("TARGET").unwrap_or_default();
+
+    // MSVC: use the Windows SDK rc.exe to produce a .res linked by link.exe.
+    if target.contains("msvc") {
+        if let Some(rc) = find_rc() {
+            let out = out_base.join("app.res");
+            let status = Command::new(&rc)
+                .arg("/nologo")
+                .arg("/fo")
+                .arg(&out)
+                .arg("/I")
+                .arg(".")
+                .arg("app.rc")
+                .status();
+            match status {
+                Ok(s) if s.success() => {
+                    println!("cargo:rustc-link-arg={}", out.display());
+                }
+                _ => println!("cargo:warning=rc failed to compile app.rc"),
+            }
+            return;
+        }
+        println!("cargo:warning=rc.exe not found for MSVC target, skipping icon resource");
+        return;
+    }
+
     let Some(windres) = find_windres() else {
         println!("cargo:warning=windres not found, skipping icon resource");
         return;
     };
-    let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("app.res.o");
+    let out = out_base.join("app.res.o");
     let status = Command::new(&windres)
         .arg("-I").arg(".")
         .arg("-O").arg("coff")
