@@ -1313,6 +1313,8 @@ struct IslandApp {
     /// Some(true)=Some(false)=
    /// None=SMTC /
     soda_playing: Option<bool>,
+    /// 最近一次是否拿到了播放器内核真实媒体时钟（用于缩短轮询间隔，拖动/跳转后更快跟上）。
+    soda_precise: bool,
     soda_live_at: Instant,
    /// 205ms
     soda_live_rx: Option<std::sync::mpsc::Receiver<bool>>,
@@ -1324,6 +1326,7 @@ struct IslandApp {
             Option<(f64, f64, f64)>,
             Option<bool>,
             Option<crate::cdp_lyric::SodaTrialMeta>,
+            Option<crate::cdp_lyric::SodaMediaClock>,
         )>,
     >,
    /// SMTC
@@ -1761,6 +1764,7 @@ let (r, cov, settled) = if light {
             soda_tick_busy: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             soda_live_cached: false,
             soda_playing: None,
+            soda_precise: false,
             soda_live_at: Instant::now() - Duration::from_secs(3600),
             soda_live_rx: None,
             soda_pos_at: Instant::now() - Duration::from_secs(3600),
@@ -10277,7 +10281,10 @@ self.spos = p;
         // `.slider-fill`
         // SMTC from_smtc
 if self.app_is_soda() {
-            if self.soda_pos_at.elapsed() >= Duration::from_millis(400)
+            // 拿到真实媒体时钟后轮询更快（160ms），拖动进度条/跳转后能迅速校准；
+            // 回退到 DOM 进度时仍用 400ms，避免无谓的 CDP 往返。
+            let poll_ms = if self.soda_precise { 160 } else { 400 };
+            if self.soda_pos_at.elapsed() >= Duration::from_millis(poll_ms)
                 && self.soda_prog_rx.is_none()
                 && std::env::var_os("WINISLE_NOSODAPROG").is_none()
             {
@@ -10289,16 +10296,49 @@ if self.app_is_soda() {
                 };
                 let (tx, rx) = std::sync::mpsc::channel();
                 self.soda_prog_rx = Some(rx);
+                // 暂停时也用已知位置作为提示，从历史媒体元素中挑出当前曲目。
+                let hint_pos = self.current_pos();
+                // 试听时媒体元素时长是片段长度（约 60s），不是整曲时长；沿用上一拍
+                // 已知的片段长度，避免轮询恰好读到空的 trial 元数据时去匹配整曲元素。
+                let hint_dur = if self.soda_trial_active && self.soda_clip_dur >= 10.0 {
+                    self.soda_clip_dur
+                } else {
+                    dur
+                };
                 std::thread::spawn(move || {
-                    let pr = crate::cdp_lyric::fetch_progress(dur);
-                    let pl = crate::cdp_lyric::fetch_play_state().map(|(p, _, _)| p);
+                    // 试听片段要放在媒体时钟之前读：媒体元素的 duration 是“片段长度”，
+                    // 而 hint_dur 默认是整首歌的时长。若用整曲时长去挑媒体元素，会把
+                    // 之前那首完整歌曲的旧元素当成当前曲目（时长差 3 秒以上才排除），
+                    // 于是试听时进度/歌词跟着旧元素走、循环后也不回到片段开头。
                     let tm = crate::cdp_lyric::fetch_trial_meta();
-                    let _ = tx.send((pr, pl, tm));
+                    let media_hint_dur = match &tm {
+                        Some(t)
+                            if t.limited_free
+                                && t.clip_duration >= 10.0
+                                && t.full_duration > t.clip_duration * 1.05 =>
+                        {
+                            t.clip_duration
+                        }
+                        _ => hint_dur,
+                    };
+                    // 位置源适配：汽水优先读播放器内核的真实媒体时钟（audio/video.currentTime），
+                    // 它连续、精确，没有 DOM 进度条 1 秒一跳、滞后 0.75–1.7 秒的问题。
+                    // 只有在读不到媒体元素时才回退到旧的 DOM 进度 + 播放态。
+                    let mc = crate::cdp_lyric::fetch_media_clock(hint_pos, media_hint_dur);
+                    // DOM 进度仍取一份：既作为媒体时钟不可用时的回退，也用来判断
+                    // 试听片段的媒体元素 currentTime 是“片段内相对时间”还是“整曲绝对时间”。
+                    let pr = crate::cdp_lyric::fetch_progress(dur);
+                    let pl = if let Some(m) = mc {
+                        Some(!m.paused)
+                    } else {
+                        crate::cdp_lyric::fetch_play_state().map(|(p, _, _)| p)
+                    };
+                    let _ = tx.send((pr, pl, tm, mc));
                 });
             }
             let recv = self.soda_prog_rx.as_ref().map(|rx| rx.try_recv());
             match recv {
-                Some(Ok((pr, pl, tm))) => {
+                Some(Ok((pr, pl, tm, mc))) => {
                     self.soda_prog_rx = None;
                     if let Some(m) = tm {
                         //  track/
@@ -10332,10 +10372,59 @@ let pause_pending = self
                         //  music.playing UI /
 self.music.playing = p;
                     }
-                    if let Some((p, tot, _age)) = pr {
-                        // DOM age 
-                        //  p + age1.0 
-let p_now = p.min(tot.max(1.0));
+                    // 统一的“进度源”：优先真实媒体时钟，其次旧的 DOM 进度。
+                    let media_precise = mc.is_some();
+                    self.soda_precise = media_precise;
+                    let prog = if media_precise {
+                        mc.map(|m| (m.pos, m.dur, 0.0))
+                    } else {
+                        pr
+                    };
+                    if let Some((mut p, tot, _age)) = prog {
+                        // 媒体元素 currentTime 连续、精确，无需再用 age 补偿。
+                        // 试听片段：若媒体元素用的是整曲文件（currentTime 含片段起点），
+                        // 用 DOM 片段内时间做交叉校验后减去 clip_start，避免 trial_start 再加一次。
+                        if media_precise {
+                            if let Some((pd, _td, _)) = pr {
+                                let off = self.soda_clip_start.max(0.0);
+                                if off > 1.0
+                                    && (p - (pd + off)).abs() <= 3.0
+                                    && (p - pd).abs() > 3.0
+                                {
+                                    p -= off;
+                                }
+                                // 单曲循环回到开头：真实元素可能刚被重建，这一拍
+                                // 媒体缓存里还是别的预加载元素（实测会闪 11.4s），
+                                // 而 DOM 进度已经回到片段开头。用上一拍还在结尾 +
+                                // 这一拍媒体值仍偏大 + DOM 已接近 0 判定为循环重置。
+                                let pdl = if off > 1.0 && pd >= off - 1.0 {
+                                    pd - off
+                                } else {
+                                    pd
+                                };
+                                if self.soda_last_p > tot.max(1.0) - 2.0
+                                    && p > 5.0
+                                    && pdl < 3.0
+                                {
+                                    p = pdl.max(0.0);
+                                }
+                            }
+                        }
+                        let p_now = p.min(tot.max(1.0));
+                        if std::env::var_os("WINISLE_MEDIA_LOG").is_some() {
+                            use std::io::Write as _;
+                            if let Ok(mut f) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(crate::paths::file("lyrics_debug.log"))
+                            {
+                                let _ = writeln!(
+                                    f,
+                                    "soda ui p={:.3} pnow={:.3} tot={:.3} precise={}",
+                                    p, p_now, tot, media_precise
+                                );
+                            }
+                        }
                         self.soda_dur = tot;
                         //  30s  track.duration                        //  trial_start
 let full = if self.soda_full_dur > 1.0 {
@@ -10369,14 +10458,20 @@ self.spos = p;
                             self.spos_valid = true;
                             self.pause_pending_at = None;
                         } else if pause_pending {
-                            // ??
-                            } else if force_sync || diff.abs() > 2.0 {
-                            // / ?
+                            // 刚点击暂停，等待真实播放态回报，期间保持位置不软校正。
+                            } else if media_precise {
+                            // 媒体时钟精确且连续：每次轮询都直接对齐播放器内核时间，
+                            // 不再用 .max(cur) 追帧（那会造成歌词慢半拍、跳一下再回弹）。
+                            self.spos = p_now;
+                            self.spos_at = Instant::now();
+                            self.spos_valid = true;
+                        } else if force_sync || diff.abs() > 2.0 {
+                            // 播放态切换 / 大偏差直接用新值硬对齐
 self.spos = p_now;
                             self.spos_at = Instant::now();
                             self.spos_valid = true;
                         } else if changed {
-                            // 1 p+age                            //  400ms                             // 
+                            // 旧 DOM 进度：用 p_new + age 补偿并向前软校正，避免倒退。
 self.spos = p_now.max(cur);
                             self.spos_at = Instant::now();
                             self.spos_valid = true;

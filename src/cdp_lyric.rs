@@ -213,6 +213,287 @@ fn evaluate(expr: &str) -> Option<serde_json::Value> {
     None
 }
 
+/// 汽水真实播放时钟：直接读取页面里游离的 <video>/<audio> 元素的 currentTime。
+/// DOM 进度条（.slider-fill）约 1 秒才跳一次且滞后 0.75–1.7 秒，用它驱动逐字歌词必然慢半拍；
+/// 媒体元素的 currentTime 是播放器内核的真实时钟，连续、精确。
+#[derive(Clone, Copy, Debug)]
+pub struct SodaMediaClock {
+    pub pos: f64,
+    pub dur: f64,
+    pub paused: bool,
+    pub ready: u32,
+}
+
+fn cdp_send_wait(
+    s: &mut TcpStream,
+    id: i64,
+    method: &str,
+    params: serde_json::Value,
+) -> Option<serde_json::Value> {
+    let msg = serde_json::json!({ "id": id, "method": method, "params": params });
+    ws_send_text(s, &msg.to_string())?;
+    // Runtime.enable 会把页面已缓存的 consoleAPICalled 事件全部重放（实测可达 1000+ 条，
+    // 每条都是无 id 的事件帧），因此这里必须能跳过大量事件，不能只等几帧。
+    for _ in 0..8192 {
+        let txt = ws_read_text(s)?;
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+            if v.get("id").and_then(|x| x.as_i64()) == Some(id) {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+const MEDIA_PICK_FN: &str = r#"function(hintPos,hintDur){
+  try{
+    const arr=this;
+    if(!arr||typeof arr.length!=='number') return {found:false};
+    try{ window.__winislePool=arr; }catch(e){}
+    try{
+      if(window.__winisleTrack){
+        for(let i=0;i<arr.length;i++) window.__winisleTrack(arr[i]);
+      }
+    }catch(e){}
+    const playing=[]; const playingAny=[]; const paused=[];
+    const hp=isFinite(hintPos)?+hintPos:0, hd=isFinite(hintDur)?+hintDur:0;
+    for(let i=0;i<arr.length;i++){
+      try{
+        const a=arr[i];
+        if(!a) continue;
+        const d=+a.duration, ct=+a.currentTime, rs=+a.readyState;
+        if(!isFinite(d)||d<=0.05||!isFinite(ct)||ct<0) continue;
+        const rec={el:a,ct:ct,d:d,paused:!!a.paused,ready:rs};
+        const durOk = !(hd>1 && Math.abs(d-hd)>3);
+        if(!a.paused){ playingAny.push(rec); if(durOk) playing.push(rec); }
+        else if(ct < d-1.5){ if(durOk) paused.push(rec); }
+      }catch(e){}
+    }
+    let best=null;
+    if(playing.length){
+      playing.sort((x,y)=>y.ct-x.ct);
+      best=playing[0];
+    }else if(playingAny.length && hd<=1){
+      // 首次还不知道时长时，至少优先当前真实在播的元素；一旦有时长提示，
+      // 就只认可时长匹配的元素，避免选中旁边预加载的短视频/旧曲目。
+      playingAny.sort((x,y)=>y.ct-x.ct);
+      best=playingAny[0];
+    }else if(paused.length){
+      paused.sort((x,y)=>{
+        const dx = hd>1 ? Math.abs(x.d-hd)-Math.abs(y.d-hd) : 0;
+        if(Math.abs(dx)>0.5) return dx;
+        return Math.abs(x.ct-hp)-Math.abs(y.ct-hp);
+      });
+      best=paused[0];
+    }
+    if(!best) return {found:false};
+    try{ window.__winisleMedia=best.el; }catch(e){}
+    return {found:true,pos:best.ct,dur:best.d,paused:best.paused,ready:best.ready};
+  }catch(e){ return {found:false,err:String(e)}; }
+}"#;
+
+fn media_value_to_clock(v: &serde_json::Value) -> Option<SodaMediaClock> {
+    if v.get("found").and_then(|x| x.as_bool()) != Some(true) {
+        return None;
+    }
+    let pos = v.get("pos").and_then(|x| x.as_f64())?;
+    let dur = v.get("dur").and_then(|x| x.as_f64())?;
+    if !pos.is_finite() || !dur.is_finite() || dur <= 0.05 {
+        return None;
+    }
+    Some(SodaMediaClock {
+        pos,
+        dur,
+        paused: v.get("paused").and_then(|x| x.as_bool()).unwrap_or(false),
+        ready: v.get("ready").and_then(|x| x.as_u64()).unwrap_or(0) as u32,
+    })
+}
+
+/// 读取汽水播放器的真实播放时钟。`hint_pos`/`hint_dur` 用于在暂停时从历史媒体元素中
+/// 挑出当前曲目（而不是已播完的旧元素）。失败返回 None，由调用方回退到 DOM 进度。
+pub fn fetch_media_clock(hint_pos: f64, hint_dur: f64) -> Option<SodaMediaClock> {
+    // 快路径：页面里缓存过当前媒体元素（window.__winisleMedia），直接读属性。
+    // 只有首次或曲目切换（时长/暂停位置明显不符）时才走下面的 queryObjects 全量扫描。
+    let cached_expr = format!(
+        r#"(()=>{{
+          // 一次性挂 play/load 钩子：汽水切歌或单曲循环时若新建媒体元素，
+          // 这里能在它一开始播放时就记住它，避免回退到 6.6 秒的 queryObjects 全量扫描。
+          try{{
+            if(!window.__winisleMediaHook){{
+              window.__winisleMediaHook=1; window.__winisleRecent=[];
+              const P=HTMLMediaElement.prototype, op=P.play, ol=P.load;
+              const remember=function(el){{try{{
+                const r=window.__winisleRecent;
+                if(r.indexOf(el)<0){{r.push(el); if(r.length>8)r.shift();}}
+                window.__winisleMedia=el;
+                if(window.__winisleTrack)window.__winisleTrack(el);
+              }}catch(e){{}}}};
+              const track=function(el){{try{{
+                if(!el||el.__winisleTracked)return; el.__winisleTracked=1;
+                const mark=function(){{try{{if(!el.paused&&!el.ended)window.__winisleActive=el;}}catch(e){{}}}};
+                el.addEventListener('timeupdate',mark);
+                el.addEventListener('playing',mark);
+                el.addEventListener('seeking',mark);
+                el.addEventListener('seeked',mark);
+              }}catch(e){{}}}};
+              window.__winisleTrack=track;
+              P.play=function(){{remember(this);return op.apply(this,arguments)}};
+              P.load=function(){{remember(this);return ol.apply(this,arguments)}};
+            }}
+          }}catch(e){{}}
+          const hd={hd}, hp={hp};
+          try{{
+            // 事件追踪到的“最后一次真正播放中”的元素最可靠：timeupdate/playing/
+            // seeking/seeked 只在真实的播放元素上触发，预加载元素不会误报到。
+            try{{
+              const act=window.__winisleActive;
+              if(act){{
+                const d=+act.duration, ct=+act.currentTime, rs=+act.readyState;
+                if(isFinite(d)&&d>0.05&&isFinite(ct)&&ct>=0
+                   && !(hd>1&&Math.abs(d-hd)>3) && !act.ended){{
+                  return {{found:true,pos:ct,dur:d,paused:!!act.paused,ready:rs}};
+                }}
+              }}
+            }}catch(e){{}}
+            const cand=[];
+            const add=function(a){{if(a&&cand.indexOf(a)<0)cand.push(a)}};
+            add(window.__winisleMedia);
+            const rec=window.__winisleRecent||[];
+            for(let i=0;i<rec.length;i++)add(rec[i]);
+            const pool=window.__winislePool||[];
+            for(let i=0;i<pool.length;i++)add(pool[i]);
+            const now=Date.now();
+            let best=null, bestScore=-1e18, fallback=null, fbScore=-1e18;
+            for(let i=0;i<cand.length;i++){{
+              try{{
+                const a=cand[i], d=+a.duration, ct=+a.currentTime, rs=+a.readyState;
+                if(!isFinite(d)||d<=0.05||!isFinite(ct)||ct<0) continue;
+                if(hd>1&&Math.abs(d-hd)>3) continue;
+                // 停在结尾的旧元素永远排除：单曲循环/切歌后它会被误当成当前曲目。
+                if(a.paused&&ct>=d-2) continue;
+                // 汽水会预加载一批媒体元素，它们的 paused 可能一直是 false 但 currentTime
+                // 冻结不动（实测多个元素卡在 12s）。只有两次轮询间 currentTime 真的变化
+                // 的元素才是当前播放器；单曲循环/拖动时 currentTime 会跳变，也要认。
+                const pc=a.__winisleCt, pt=a.__winisleT;
+                const delta=isFinite(pc)?ct-pc:0;
+                a.__winisleCt=ct; a.__winisleT=now;
+                const moved=isFinite(pc)&&Math.abs(delta)>0.005;
+                if(moved){{
+                  // 用 |delta| 加权：单曲循环/拖动时当前元素会跳几十秒，远大于
+                  // 旁边那些预加载元素每秒不到 1 秒的微小漂移，避免循环瞬间
+                  // 被别的元素抢先报一个中间位置（实测会闪一下 11.4s）。
+                  const score=2e6+Math.abs(delta)*100.0+ct;
+                  if(score>bestScore){{bestScore=score;best={{el:a,pos:ct,dur:d,paused:!!a.paused,ready:rs}};}}
+                }}
+                // 没有可判定的前进元素时的兜底：优先真正暂停且离提示位置最近的元素，
+                // 再退而求其次选离提示位置最近的元素（避免选中远处冻结的预加载元素）。
+                const fs=(a.paused?0:-100)-Math.abs(ct-hp);
+                if(fs>fbScore){{fbScore=fs;fallback={{el:a,pos:ct,dur:d,paused:!!a.paused,ready:rs}};}}
+              }}catch(e){{}}
+            }}
+            if(!best){{
+              // 没有已知时长、也没有任何元素在真正推进时，不要随便拿一个
+              // 预加载元素充数；回退到全量扫描，避免把暂停的旧元素锁死。
+              if(hd<=1) return {{found:false}};
+              best=fallback;
+            }}
+            if(!best) return {{found:false}};
+            try{{window.__winisleMedia=best.el;}}catch(e){{}}
+            return {{found:true,pos:best.pos,dur:best.dur,paused:best.paused,ready:best.ready}};
+          }}catch(e){{return {{found:false}};}}
+        }})()"#,
+        hd = hint_dur,
+        hp = hint_pos
+    );
+    if let Some(resp) = evaluate(&cached_expr) {
+        if let Some(val) = resp
+            .get("result")
+            .and_then(|x| x.get("result"))
+            .and_then(|x| x.get("value"))
+        {
+            if let Some(mc) = media_value_to_clock(val) {
+                if std::env::var_os("WINISLE_MEDIA_LOG").is_some() {
+                    dlog(&format!(
+                        "media cached pos={:.3} dur={:.3} paused={} ready={}",
+                        mc.pos, mc.dur, mc.paused, mc.ready
+                    ));
+                }
+                return Some(mc);
+            }
+        }
+    }
+
+    let wsurl = page_ws_url()?;
+    let mut s = ws_connect(&wsurl)?;
+    // queryObjects 在对象多时需要数秒（实测 ~6.6s）才能返回，默认 2.5s 读超时会误判失败。
+    let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(15000)));
+    let _ = s.set_write_timeout(Some(std::time::Duration::from_millis(5000)));
+    // 先清空页面缓存的 console 条目，再 enable；否则 Runtime.enable 会重放上千条
+    // consoleAPICalled 事件，既拖慢查询又会把响应埋进事件流里。
+    let _ = cdp_send_wait(&mut s, 99, "Runtime.discardConsoleEntries", serde_json::json!({}));
+    let _ = cdp_send_wait(&mut s, 1, "Runtime.enable", serde_json::json!({}));
+    let proto = cdp_send_wait(
+        &mut s,
+        2,
+        "Runtime.evaluate",
+        serde_json::json!({
+            "expression": "HTMLMediaElement.prototype",
+            "silent": true,
+            "returnByValue": false
+        }),
+    )?;
+    let proto_id = proto
+        .get("result")?
+        .get("result")?
+        .get("objectId")?
+        .as_str()?
+        .to_string();
+    let objs = cdp_send_wait(
+        &mut s,
+        3,
+        "Runtime.queryObjects",
+        serde_json::json!({
+            "prototypeObjectId": proto_id
+        }),
+    )?;
+    let arr_id = objs
+        .get("result")?
+        .get("objects")?
+        .get("objectId")?
+        .as_str()?
+        .to_string();
+    let call = cdp_send_wait(
+        &mut s,
+        4,
+        "Runtime.callFunctionOn",
+        serde_json::json!({
+            "objectId": arr_id,
+            "functionDeclaration": MEDIA_PICK_FN,
+            "returnByValue": true,
+            "arguments": [ { "value": hint_pos }, { "value": hint_dur } ]
+        }),
+    )?;
+    let v = call.get("result")?.get("result")?.get("value")?;
+    let mc = media_value_to_clock(v);
+    match mc {
+        Some(m) => {
+            if std::env::var_os("WINISLE_MEDIA_LOG").is_some() {
+                dlog(&format!(
+                    "media pos={:.3} dur={:.3} paused={} ready={} hint_pos={:.2}",
+                    m.pos, m.dur, m.paused, m.ready, hint_pos
+                ));
+            }
+            Some(m)
+        }
+        None => {
+            if std::env::var_os("WINISLE_MEDIA_LOG").is_some() {
+                dlog(&format!("media none hint_pos={:.2} hint_dur={:.2}", hint_pos, hint_dur));
+            }
+            None
+        }
+    }
+}
+
 const EXPR: &str = r#"(()=>{
  const el=document.querySelector('#app');
  const app=el&&el.__vue_app__;
@@ -374,11 +655,14 @@ pub fn fetch_trial_meta() -> Option<SodaTrialMeta> {
       const fillLeft=num(bp&&bp.querySelector('.slider-fill'),'left');
       const part=bp&&bp.querySelector('.slider-partial-track');
       const partWidth=num(part,'width');
-      const active = domFull>1 && fillLeft>0.3 && partWidth>0.1;
+      const active = domFull>1 && partWidth>0.1 && partWidth<99.5;
       if(!best && !active) return {ok:false};
       const tr=best||{}, pf=tr.preview||{}, ai=tr.audition_info||{};
-      let start=(pf.start!=null?pf.start:(ai.start_time_ms!=null?ai.start_time_ms:0))/1000;
-      let clip=(pf.duration!=null?pf.duration:(ai.duration_ms!=null?ai.duration_ms:0))/1000;
+      // 只有底部播放条真的画出“试听区间”时才按试听处理。普通完整歌曲的
+      // track 对象也可能带 audition_info/preview（汽水给每首歌都塞了 30 秒
+      // 试听元数据），过去误把它当成试听会让媒体时钟拿 30s 去匹配整曲元素，
+      // 结果其他歌进度一直闪、暂停播放都不对。
+      let start=0, clip=0;
       if(active){ start=fillLeft/100*domFull; clip=partWidth/100*domFull; }
       const full = domFull>1 ? domFull : (tr.duration||0)/1000;
       return {ok:true,name:active?'':(tr.name||''),full:full,start:start,clip:clip,limited:active||!!tr.limited_free_info};
@@ -828,5 +1112,133 @@ mod tests {
             t.elapsed().as_millis(),
             r.map(|x| x.name)
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn probe_media_clock() {
+        let mc = super::fetch_media_clock(74.0, 273.7);
+        eprintln!("MEDIA_CLOCK={:?}", mc);
+        assert!(mc.is_some(), "fetch_media_clock returned None");
+    }
+
+    #[test]
+    #[ignore]
+    fn probe_enable_frames() {
+        let u = super::page_ws_url().unwrap();
+        let mut s = super::ws_connect(&u).unwrap();
+        super::ws_send_text(
+            &mut s,
+            &serde_json::json!({"id":10,"method":"Runtime.enable","params":{}}).to_string(),
+        )
+        .unwrap();
+        for i in 0..20 {
+            let start = std::time::Instant::now();
+            let r = super::ws_read_text(&mut s);
+            let ms = start.elapsed().as_millis();
+            match r {
+                Some(x) => eprintln!("FRAME {} ms={} len={} head={:?}", i, ms, x.len(), &x[..x.len().min(90)]),
+                None => {
+                    eprintln!("FRAME {} ms={} NONE", i, ms);
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn probe_enable_wait() {
+        let u = super::page_ws_url().unwrap();
+        let mut s = super::ws_connect(&u).unwrap();
+        super::ws_send_text(
+            &mut s,
+            &serde_json::json!({"id":77,"method":"Runtime.enable","params":{}}).to_string(),
+        )
+        .unwrap();
+        let start = std::time::Instant::now();
+        let mut events = 0;
+        let mut result = None;
+        for _ in 0..20000 {
+            let r = super::ws_read_text(&mut s);
+            match r {
+                Some(x) => {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&x) {
+                        if v.get("id").and_then(|q| q.as_i64()) == Some(77) {
+                            result = Some(v);
+                            break;
+                        }
+                    }
+                    events += 1;
+                }
+                None => break,
+            }
+        }
+        eprintln!(
+            "ENABLE_WAIT ms={} events={} got={}",
+            start.elapsed().as_millis(),
+            events,
+            result.is_some()
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn probe_ws_stack() {
+        let u = super::page_ws_url();
+        eprintln!("WS_URL={:?}", u);
+        if let Some(u) = u {
+            let s = super::ws_connect(&u);
+            eprintln!("WS_CONNECT={}", s.is_some());
+            if let Some(mut s) = s {
+                let r = super::cdp_send_wait(
+                    &mut s,
+                    2,
+                    "Runtime.evaluate",
+                    serde_json::json!({"expression":"1+1","returnByValue":true}),
+                );
+                eprintln!("EVAL_RESP={:?}", r);
+                let en = super::cdp_send_wait(&mut s, 10, "Runtime.enable", serde_json::json!({}));
+                eprintln!("ENABLE={}", en.is_some());
+                let proto = super::cdp_send_wait(
+                    &mut s,
+                    11,
+                    "Runtime.evaluate",
+                    serde_json::json!({"expression":"HTMLMediaElement.prototype","objectGroup":"probe","returnByValue":false}),
+                );
+                eprintln!("PROTO={:?}", proto);
+                let pid = proto
+                    .as_ref()
+                    .and_then(|v| v.get("result"))
+                    .and_then(|v| v.get("result"))
+                    .and_then(|v| v.get("objectId"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                if let Some(pid) = pid {
+                    let objs = super::cdp_send_wait(
+                        &mut s,
+                        12,
+                        "Runtime.queryObjects",
+                        serde_json::json!({"prototypeObjectId":pid}),
+                    );
+                    eprintln!("OBJS={:?}", objs);
+                    if let Some(aid) = objs
+                        .as_ref()
+                        .and_then(|v| v.get("result"))
+                        .and_then(|v| v.get("objects"))
+                        .and_then(|v| v.get("objectId"))
+                        .and_then(|v| v.as_str())
+                    {
+                        let call = super::cdp_send_wait(
+                            &mut s,
+                            13,
+                            "Runtime.callFunctionOn",
+                            serde_json::json!({"objectId":aid,"functionDeclaration":super::MEDIA_PICK_FN,"returnByValue":true,"arguments":[{"value":74.0},{"value":273.7}]}),
+                        );
+                        eprintln!("CALL={:?}", call);
+                    }
+                }
+            }
+        }
     }
 }
