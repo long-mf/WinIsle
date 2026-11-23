@@ -11227,21 +11227,12 @@ let has_himalaya = load(&mut fonts, "himalaya", r"C:\Windows\Fonts\himalaya.ttf"
     let has_msyh = load(&mut fonts, "msyh", r"C:\Windows\Fonts\msyh.ttc");
     let has_msyhbd = load(&mut fonts, "msyhbd", r"C:\Windows\Fonts\msyhbd.ttc");
 
-    //  Noto Sans SC**
-    // 
-    fonts.font_data.insert(
-        "noto".to_owned(),
-        egui::FontData::from_static(include_bytes!("../assets/NotoSansSC-Regular.otf")).into(),
-    );
-    fonts.font_data.insert(
-        "notob".to_owned(),
-        egui::FontData::from_static(include_bytes!("../assets/NotoSansSC-Bold.otf")).into(),
-    );
-
-    // Microsoft YaHei?Windows  UI ?
-    //  noto/notob
-    let cjk = if has_msyh { "msyh" } else { "noto" };
-    let cjk_bold = if has_msyhbd { "msyhbd" } else { "notob" };
+    // 中文字体：Windows 10/11 自带微软雅黑（msyh/msyhbd），直接加载系统字体。
+    // 原先还内嵌了整套 Noto Sans SC / Noto Sans SC Bold（合计约 16MB），
+    // 但仅在系统缺少 msyh 时才会用到，属于白白增大安装包体积；这里不再内嵌，
+    // 缺少 msyh 的极端环境退回 Segoe UI（仅影响中文显示，不会崩溃）。
+    let cjk = if has_msyh { "msyh" } else { "segoe" };
+    let cjk_bold = if has_msyhbd { "msyhbd" } else { "segoeb" };
 
     if let Some(list) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
         if has_segoe {
@@ -11258,7 +11249,6 @@ let has_himalaya = load(&mut fonts, "himalaya", r"C:\Windows\Fonts\himalaya.ttf"
         if has_himalaya {
             list.push("himalaya".to_owned());
         }
-        list.push("noto".to_owned());
     }
     if let Some(list) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
         list.push(cjk.to_owned());
@@ -11270,10 +11260,9 @@ let has_himalaya = load(&mut fonts, "himalaya", r"C:\Windows\Fonts\himalaya.ttf"
         if has_himalaya {
             list.push("himalaya".to_owned());
         }
-        list.push("noto".to_owned());
     }
-    //  Segoe UI Bold Boldnoto / 
-let mut bold_list = vec!["segoeb".to_owned(), cjk_bold.to_owned(), "notob".to_owned(), "noto".to_owned(), "deng".to_owned()];
+    // 粗体回退列表：Segoe UI Bold → 中文粗体 → 等线
+let mut bold_list = vec!["segoeb".to_owned(), cjk_bold.to_owned(), "deng".to_owned()];
     if has_malgun {
         bold_list.push("malgun".to_owned());
     }
