@@ -1,7 +1,7 @@
 ; WinIsle — Inno Setup 安装脚本（按用户安装，无需管理员）
 ; CI 用法：iscc /DAppVersion=0.2.0 installer\WinIsle.iss
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.1.1"
 #endif
 #define AppName "WinIsle"
 #define AppExe "WinIsle.exe"
@@ -61,3 +61,6 @@ Type: dirifempty; Name: "{group}"
 
 [UninstallRun]
 Filename: "taskkill.exe"; Parameters: "/IM {#AppExe} /F"; Flags: runhidden; RunOnceId: "KillWinIsle"
+; 兜底清除“开机启动”注册表项（无论它是在安装器中勾选，还是在应用设置里开启）
+Filename: "reg.exe"; Parameters: "delete ""HKCU\Software\Microsoft\Windows\CurrentVersion\Run"" /v WinIsle /f"; Flags: runhidden; RunOnceId: "DelAutostartWinIsle"
+Filename: "reg.exe"; Parameters: "delete ""HKCU\Software\Microsoft\Windows\CurrentVersion\Run"" /v MyIsle /f"; Flags: runhidden; RunOnceId: "DelAutostartMyIsle"

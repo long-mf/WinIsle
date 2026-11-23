@@ -543,6 +543,31 @@ if (cfg.idle_face as usize) >= FACES.len() || FACE_REMOVED[cfg.idle_face as usiz
     }
 }
 
+/// 运行一条 reg.exe 命令（隐藏控制台窗口），返回是否成功。
+fn reg_ok(args: &[&str]) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("reg")
+            .args(args)
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = args;
+        false
+    }
+}
+
+/// 读取注册表，判断当前是否已设置开机启动（兼容旧的 MyIsle 值名）。
+fn autostart_enabled() -> bool {
+    let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    reg_ok(&["query", key, "/v", "WinIsle"]) || reg_ok(&["query", key, "/v", "MyIsle"])
+}
+
 ///  HKCU\...\Run--autostart
 fn set_autostart(on: bool) {
     let exe = std::env::current_exe()
@@ -550,18 +575,12 @@ fn set_autostart(on: bool) {
         .unwrap_or_default();
     let key = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
-    let _ = std::process::Command::new("reg")
-        .args(["delete", key, "/v", "MyIsle", "/f"])
-        .status();
+    let _ = reg_ok(&["delete", key, "/v", "MyIsle", "/f"]);
     if on {
         let val = format!("\"{}\" --autostart", exe);
-        let _ = std::process::Command::new("reg")
-            .args(["add", key, "/v", "WinIsle", "/t", "REG_SZ", "/d", &val, "/f"])
-            .status();
+        let _ = reg_ok(&["add", key, "/v", "WinIsle", "/t", "REG_SZ", "/d", &val, "/f"]);
     } else {
-        let _ = std::process::Command::new("reg")
-            .args(["delete", key, "/v", "WinIsle", "/f"])
-            .status();
+        let _ = reg_ok(&["delete", key, "/v", "WinIsle", "/f"]);
     }
 }
 
@@ -1606,7 +1625,9 @@ struct IslandApp {
 
 impl IslandApp {
     fn new(tray: Option<Tray>, open_panel: bool) -> Self {
-        let cfg = Config::load();
+        let mut cfg = Config::load();
+        // 设置页的“开机启动”开关以注册表实际状态为准，避免配置与系统不一致
+        cfg.autostart = autostart_enabled();
         let (lyr_tx, lyr_req_rx) =
             std::sync::mpsc::channel::<(String, String, String, f64, bool, bool)>();
         let (lyr_res_tx, lyr_rx) =
@@ -8693,7 +8714,7 @@ let tile_h = 60.0f32;
         let face_on = self.face_mode_active();
         let comp_n = self.comp_order().len();
         let n_headers = 5usize + if face_on { 1 } else { 0 };
-        let n_rows = comp_n + 6;
+        let n_rows = comp_n + 7;
         let mut total_h = n_headers as f32 * label_h
             + n_headers.saturating_sub(1) as f32 * group_gap
             + n_rows as f32 * row_h
@@ -8995,6 +9016,16 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
         y += group_gap;
         group_header(painter, y, "通用");
         y += label_h;
+        row_label(painter, y, "开机启动", ink);
+        {
+            let trect = tg(y);
+            if let Some(v) = Self::draw_toggle(ui, painter, trect, self.cfg.autostart, ui.id().with("tg_autostart"), accent, a, true) {
+                set_autostart(v);
+                self.cfg.autostart = autostart_enabled();
+                changed = true;
+            }
+        }
+        y += row_h;
         row_label(painter, y, "检查更新", ink);
         {
             let up_row = egui::Rect::from_min_max(
