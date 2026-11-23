@@ -1228,6 +1228,10 @@ struct IslandApp {
     full: bool,
     /// ""?
     hover_hold: Option<Instant>,
+    /// 启动/恢复时先要求鼠标“离开过”岛体一次，才允许 hover 自动展开。
+    /// 防止退出后立刻重开时，指针仍停在上次点击位置、恰好压在收起胶囊上，
+    /// 导致一启动就误判 hover → 整块面板展开再缩回（视觉上“先展开后缩小”）。
+    hover_armed: bool,
 
     click_through: bool,
     ///  (l,t,r,b,rad)SetWindowRgn
@@ -1694,6 +1698,7 @@ let (r, cov, settled) = if light {
             settle: None,
             full: false,
             hover_hold: None,
+            hover_armed: false,
             region: (i32::MIN, 0, 1, 1, 0),
             perf_region_ms: 0.0,
             perf_netease_ms: 0.0,
@@ -2120,6 +2125,7 @@ if std::env::var_os("WINISLE_NO_LAYERED").is_none() {
             self.target = 0.0;
             self.expanded = 0.0;
             self.collapse_at = None;
+            self.hover_armed = false;
             return;
         }
         let now = Instant::now();
@@ -2150,7 +2156,7 @@ if std::env::var_os("WINISLE_NO_LAYERED").is_none() {
             self.target = 0.0;
             self.collapse_at = None;
         }
-        let hover = if std::env::var_os("WINISLE_NO_HOVER").is_some() {
+        let mut hover = if std::env::var_os("WINISLE_NO_HOVER").is_some() {
             false
         } else if self.dragging || self.settle.is_some() {
             false
@@ -2164,6 +2170,15 @@ if std::env::var_os("WINISLE_NO_LAYERED").is_none() {
         } else {
             self.hover(ctx, self.hwnd)
         };
+        // 启动/恢复后的 hover 防误触：前 250ms 不响应；之后必须先观察到一次
+        // “指针不在岛体上”，才把 hover 武装起来。这样退出后立刻重开、指针仍停在
+        // 上次点击处（可能正好压住收起胶囊）时，不会一启动就展开再缩回。
+        if !self.hover_armed {
+            let settled = self.boot_at.elapsed() >= Duration::from_millis(250);
+            let (armed, gated) = gate_startup_hover(self.hover_armed, hover, settled);
+            self.hover_armed = armed;
+            hover = gated;
+        }
         if hover {
             self.target = 1.0;
             self.collapse_at = None;
@@ -10644,6 +10659,18 @@ let target_ms: u64 = if animating { 16 } else { 200 };
     }
 }
 
+fn gate_startup_hover(armed: bool, raw_hover: bool, settled: bool) -> (bool, bool) {
+    if armed {
+        (true, raw_hover)
+    } else if settled && !raw_hover {
+        // 稳定期内观察到指针不在岛体上：武装 hover 并本帧保持不展开
+        (true, false)
+    } else {
+        // 启动初期，或指针一开始就压在岛体上：继续抑制，直到它离开过一次
+        (false, false)
+    }
+}
+
 fn chrono_like_now() -> String {
     let d = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -11361,4 +11388,45 @@ let open_panel = false;
 fn make_tex(ctx: &egui::Context, name: &str, bytes: &'static [u8], w: usize, h: usize) -> egui::TextureHandle {
     let img = egui::ColorImage::from_rgba_unmultiplied([w, h], bytes);
     ctx.load_texture(name, img, egui::TextureOptions::LINEAR)
+}
+
+#[cfg(test)]
+mod hover_gate_tests {
+    use super::gate_startup_hover;
+
+    #[test]
+    fn startup_with_pointer_over_island_never_expands() {
+        // 启动初期：即使指针压在岛上也必须抑制
+        assert_eq!(gate_startup_hover(false, true, false), (false, false));
+        // 已过 250ms 但指针仍压着：继续抑制（等待离开一次）
+        assert_eq!(gate_startup_hover(false, true, true), (false, false));
+        // 指针始终不离开 → 永远不因启动 hover 而展开
+        let mut state = (false, true, true);
+        for _ in 0..120 {
+            state = {
+                let (a, h) = gate_startup_hover(state.0, true, true);
+                (a, h, true)
+            };
+            assert!(!state.1, "hover should stay suppressed while pointer remains over island");
+        }
+    }
+
+    #[test]
+    fn startup_with_pointer_outside_arms_then_normal_hover_works() {
+        // 250ms 后指针在岛外：武装，本帧不展开
+        assert_eq!(gate_startup_hover(false, false, true), (true, false));
+        // 武装后正常 hover 生效
+        assert_eq!(gate_startup_hover(true, true, true), (true, true));
+        assert_eq!(gate_startup_hover(true, false, true), (true, false));
+    }
+
+    #[test]
+    fn pointer_leaves_then_reenters_expands() {
+        let (armed, hover) = gate_startup_hover(false, true, true);
+        assert_eq!((armed, hover), (false, false));
+        let (armed, hover) = gate_startup_hover(armed, false, true);
+        assert_eq!((armed, hover), (true, false));
+        let (armed, hover) = gate_startup_hover(armed, true, true);
+        assert_eq!((armed, hover), (true, true));
+    }
 }
