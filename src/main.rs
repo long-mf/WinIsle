@@ -1950,6 +1950,13 @@ let (r, cov, settled) = if light {
             remind_mlist_mode: false,
             remind_morph: 1.0,
         };
+        if let Ok(v) = std::env::var("WINISLE_SETTINGS_SCROLL") {
+            if let Ok(f) = v.parse::<f32>() {
+                app.settings_scroll = f;
+                app.settings_scroll_target = f;
+                app.settings_scroll_vis = 1.0;
+            }
+        }
         if let Ok(v) = std::env::var("WINISLE_CITY_SEARCH") {
             app.show_settings = true;
             app.w_city_search = true;
@@ -5268,7 +5275,7 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
             let cx = item.center().x;
             let ccy = item.center().y;
             draw_nav_icon(&rp, *icon_kind, egui::pos2(cx, ccy - 7.0), 18.0, icol);
-            rp.text(egui::pos2(cx, ccy + 10.5), egui::Align2::CENTER_CENTER, *label, bold_font(10.5), icol);
+            rp.text(egui::pos2(cx, ccy + 10.5), egui::Align2::CENTER_CENTER, *label, egui::FontId::proportional(10.5), icol);
             // 提醒小红点已按需求移除（左侧 rail「提醒」项不再绘制红点）
             let resp = ui.interact(item, ui.id().with(("rail", idx)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             if resp.clicked() {
@@ -8873,7 +8880,7 @@ if let Ok(v) = std::env::var("WINISLE_SET_SCROLL") {
         let mut changed = false;
 
         let row_label = |painter: &egui::Painter, y: f32, s: &str, c: egui::Color32| {
-            painter.text(egui::pos2(left, y + row_h * 0.5), egui::Align2::LEFT_CENTER, s, egui::FontId::proportional(13.5), c);
+            painter.text(egui::pos2(left, y + row_h * 0.5), egui::Align2::LEFT_CENTER, s, egui::FontId::proportional(12.0), c);
         };
         let tg = |y: f32| egui::Rect::from_min_size(egui::pos2(right - 32.0, y + row_h * 0.5 - 8.0), egui::vec2(32.0, 16.0));
         let group_header = |painter: &egui::Painter, y: f32, s: &str| {
@@ -8881,7 +8888,7 @@ if let Ok(v) = std::env::var("WINISLE_SET_SCROLL") {
                 egui::pos2(left, y + label_h * 0.5),
                 egui::Align2::LEFT_CENTER,
                 s,
-                egui::FontId::proportional(12.0),
+                egui::FontId::proportional(11.0),
                 muted2,
             );
             painter.line_segment(
@@ -8994,7 +9001,7 @@ if let Ok(v) = std::env::var("WINISLE_SET_SCROLL") {
                     self.order_base_width(&probe) <= CW_MAX + 0.01
                 };
                 let label_col = if can_toggle { ink } else { muted2 };
-                painter.text(egui::pos2(left + 24.0, ry + row_h * 0.5), egui::Align2::LEFT_CENTER, Self::comp_label(&id), egui::FontId::proportional(13.5), label_col);
+                painter.text(egui::pos2(left + 24.0, ry + row_h * 0.5), egui::Align2::LEFT_CENTER, Self::comp_label(&id), egui::FontId::proportional(12.0), label_col);
                 let trect = egui::Rect::from_min_size(egui::pos2(right - 37.0, ry + row_h * 0.5 - 8.0), egui::vec2(32.0, 16.0));
                 if let Some(v) = Self::draw_toggle(ui, painter, trect, on, ui.id().with(("cset_tg", &id)), accent, a, can_toggle) {
                     order[i].1 = v;
@@ -9111,10 +9118,10 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
             }
         }
         y += row_h;
-        row_label(painter, y, "检查更新", ink);
+        row_label(painter, y, "检查更新", accent);
         {
             let up_row = egui::Rect::from_min_max(
-                egui::pos2(right - 220.0, y + 3.0),
+                egui::pos2(left, y + 3.0),
                 egui::pos2(right, y + row_h - 3.0),
             );
             let ver = self.upd_ver.as_ref().map(|m| m.version.clone()).unwrap_or_default();
@@ -9141,11 +9148,11 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
             } else if self.upd_msg.contains("稍后") && check_is_throttled(self.upd_last_manual.elapsed()) {
                 (self.upd_msg.clone(), muted2, false, false, None, true)
             } else if self.upd_msg.contains("已是最新") {
-                (format!("v{} · 已是最新 · 检查更新", update::VERSION), muted2, false, false, None, true)
+                (format!("v{} · 已是最新 · 检查更新", update::VERSION), accent, false, false, None, true)
             } else {
-                (format!("v{} · 检查更新", update::VERSION), muted2, false, false, None, true)
+                (format!("v{} · 检查更新", update::VERSION), accent, false, false, None, true)
             };
-            let font = egui::FontId::proportional(11.5);
+            let font = bold_font(11.5);
             // v0.2.1  
             painter.text(egui::pos2(right, y + row_h * 0.5), egui::Align2::RIGHT_CENTER, txt, font, col);
             if green {
