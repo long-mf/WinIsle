@@ -8279,6 +8279,8 @@ let col = egui::Color32::from_rgba_unmultiplied(170, 178, 195, a);
         self.upd_msg = "检查中…".to_string();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
+            // 本地文件/接口可能瞬间返回，保证“检查中”的转圈至少可见一小段时间。
+            std::thread::sleep(Duration::from_millis(700));
             let _ = tx.send(update::check());
         });
         self.upd_rx = Some(rx);
@@ -9218,16 +9220,41 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
             };
             let font = bold_font(11.5);
             let row_cy = y + row_h * 0.5;
+            // 检查中右侧留出转圈的位置。
+            let spin_w = if self.upd_checking { 20.0 } else { 0.0 };
+            let text_right = right - spin_w;
             if action.is_empty() {
-                painter.text(egui::pos2(right, row_cy), egui::Align2::RIGHT_CENTER, prefix, font, col);
+                painter.text(egui::pos2(text_right, row_cy), egui::Align2::RIGHT_CENTER, prefix, font, col);
             } else {
                 // 只把末尾的动作词（“检查更新”/“更新 (vX)”）做成高亮，前缀保持原样。
                 let aw = painter
                     .layout_no_wrap(action.clone(), font.clone(), accent)
                     .size()
                     .x;
-                painter.text(egui::pos2(right, row_cy), egui::Align2::RIGHT_CENTER, action, font.clone(), accent);
-                painter.text(egui::pos2(right - aw - 5.0, row_cy), egui::Align2::RIGHT_CENTER, prefix, font, col);
+                painter.text(egui::pos2(text_right, row_cy), egui::Align2::RIGHT_CENTER, action, font.clone(), accent);
+                painter.text(egui::pos2(text_right - aw - 5.0, row_cy), egui::Align2::RIGHT_CENTER, prefix, font, col);
+            }
+            if self.upd_checking {
+                // 圆形转圈动画：底环 + 旋转的薄荷色圆弧，明确表示正在检查。
+                let t = ui.input(|i| i.time) as f32;
+                let c = egui::pos2(right - 7.0, row_cy);
+                let r = 5.2;
+                painter.circle_stroke(
+                    c,
+                    r,
+                    egui::Stroke::new(1.4, egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), (a as f32 * 0.22) as u8)),
+                );
+                let a0 = t * 6.5;
+                let mut pts = Vec::with_capacity(13);
+                for k in 0..=12 {
+                    let a = a0 + (k as f32 / 12.0) * std::f32::consts::PI * 1.5;
+                    pts.push(egui::pos2(c.x + a.cos() * r, c.y + a.sin() * r));
+                }
+                painter.add(egui::Shape::line(
+                    pts,
+                    egui::Stroke::new(1.6, accent),
+                ));
+                ui.ctx().request_repaint();
             }
             if green {
                 // 
