@@ -55,12 +55,6 @@ Filename: "{app}\{#AppExe}"; Description: "运行 WinIsle"; Flags: nowait postin
 ; 这里在收到 /WINISLEUPDATE 标记时显式重启新版，避免“更新后不自动重启”。
 Filename: "{app}\{#AppExe}"; Flags: nowait; Check: IsWinIsleUpdate
 
-[Code]
-function IsWinIsleUpdate: Boolean;
-begin
-  Result := Pos('/WINISLEUPDATE', Uppercase(GetCmdTail)) > 0;
-end;
-
 ; 卸载时兜底清理快捷方式（即使安装日志缺失或用户曾手工创建同名快捷方式也能删干净）
 [UninstallDelete]
 Type: files; Name: "{userdesktop}\WinIsle.lnk"
@@ -73,3 +67,9 @@ Filename: "taskkill.exe"; Parameters: "/IM {#AppExe} /F"; Flags: runhidden; RunO
 ; 兜底清除“开机启动”注册表项（无论它是在安装器中勾选，还是在应用设置里开启）
 Filename: "reg.exe"; Parameters: "delete ""HKCU\Software\Microsoft\Windows\CurrentVersion\Run"" /v WinIsle /f"; Flags: runhidden; RunOnceId: "DelAutostartWinIsle"
 Filename: "reg.exe"; Parameters: "delete ""HKCU\Software\Microsoft\Windows\CurrentVersion\Run"" /v MyIsle /f"; Flags: runhidden; RunOnceId: "DelAutostartMyIsle"
+
+[Code]
+function IsWinIsleUpdate: Boolean;
+begin
+  Result := Pos('/WINISLEUPDATE', Uppercase(GetCmdTail)) > 0;
+end;
