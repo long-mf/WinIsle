@@ -52,5 +52,12 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "运行 WinIsle"; Flags: nowait postinstall skipifsilent
 
+; 卸载时兜底清理快捷方式（即使安装日志缺失或用户曾手工创建同名快捷方式也能删干净）
+[UninstallDelete]
+Type: files; Name: "{userdesktop}\WinIsle.lnk"
+Type: files; Name: "{group}\WinIsle.lnk"
+Type: files; Name: "{group}\卸载 WinIsle.lnk"
+Type: dirifempty; Name: "{group}"
+
 [UninstallRun]
 Filename: "taskkill.exe"; Parameters: "/IM {#AppExe} /F"; Flags: runhidden; RunOnceId: "KillWinIsle"
