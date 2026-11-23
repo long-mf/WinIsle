@@ -5243,7 +5243,7 @@ self.remind_dot = None;
                     self.show_settings = true;
                     self.mark_upd_seen_rail();
                     if self.upd_ver.is_none() && !self.upd_checking {
-                        self.start_update_check();
+                        self.start_update_check(false);
                     }
                 }
             }
@@ -8117,12 +8117,12 @@ let col = egui::Color32::from_rgba_unmultiplied(170, 178, 195, a);
         if vis > 0.5 && resp.clicked() { self.settings_scroll = 0.0; self.settings_scroll_target = 0.0; self.settings_scroll_act = std::time::Instant::now() - std::time::Duration::from_secs(10); self.show_settings = true; self.mark_upd_seen_rail(); }
     }
 
-    fn start_update_check(&mut self) {
+    fn start_update_check(&mut self, force: bool) {
         if self.upd_checking || self.upd_busy {
             return;
         }
-        // 
-        if self.cfg.upd_checked_day == update::today_local() && self.upd_ver.is_none() {
+        // 自动检查每天最多一次；但用户手动点击“检查更新”时必须强制重新检查
+        if update_check_skipped(force, &self.cfg.upd_checked_day, &update::today_local(), self.upd_ver.is_some()) {
             return;
         }
         self.upd_checking = true;
@@ -8209,7 +8209,7 @@ fn poll_update(&mut self) {
             && self.upd_last_check.elapsed() > Duration::from_secs(4 * 3600)
             && self.cfg.upd_checked_day != update::today_local()
         {
-            self.start_update_check();
+            self.start_update_check(false);
         }
     }
 
@@ -9056,7 +9056,7 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
             } else if self.upd_msg.contains("失败") {
                 (self.upd_msg.clone(), egui::Color32::from_rgba_unmultiplied(230, 120, 120, a), false, false, None, true)
             } else if checked_today {
-                (format!("v{} · 已是最新版本", update::VERSION), muted2, false, false, None, false)
+                (format!("v{} · 已是最新 · 点此重查", update::VERSION), muted2, false, false, None, true)
             } else {
                 (format!("v{} · 检查更新", update::VERSION), muted2, false, false, None, true)
             };
@@ -9092,7 +9092,7 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
                 if self.upd_ver.is_some() {
                     self.start_update_install();
                 } else {
-                    self.start_update_check();
+                    self.start_update_check(true);
                 }
             }
         }
@@ -10690,6 +10690,11 @@ let target_ms: u64 = if animating { 16 } else { 200 };
     }
 }
 
+/// 自动更新节流：自动检查每天最多一次；手动点击（force）永远不被节流。
+fn update_check_skipped(force: bool, checked_day: &str, today: &str, has_update: bool) -> bool {
+    !force && checked_day == today && !has_update
+}
+
 fn gate_startup_hover(armed: bool, raw_hover: bool, settled: bool) -> (bool, bool) {
     if armed {
         (true, raw_hover)
@@ -11423,7 +11428,18 @@ fn make_tex(ctx: &egui::Context, name: &str, bytes: &'static [u8], w: usize, h: 
 
 #[cfg(test)]
 mod hover_gate_tests {
-    use super::gate_startup_hover;
+    use super::{gate_startup_hover, update_check_skipped};
+
+    #[test]
+    fn manual_update_check_bypasses_daily_throttle() {
+        // 今天已自动检查过且没有发现更新：自动检查应跳过，但手动点击必须继续
+        assert!(update_check_skipped(false, "2026-11-23", "2026-11-23", false));
+        assert!(!update_check_skipped(true, "2026-11-23", "2026-11-23", false));
+        // 换了一天，自动检查应继续
+        assert!(!update_check_skipped(false, "2026-11-22", "2026-11-23", false));
+        // 已经发现更新时，自动检查也应继续（用于刷新进度/状态）
+        assert!(!update_check_skipped(false, "2026-11-23", "2026-11-23", true));
+    }
 
     #[test]
     fn startup_with_pointer_over_island_never_expands() {
