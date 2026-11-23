@@ -5438,11 +5438,20 @@ if self.show_rail_update() {
                 Module::Weather => self.draw_weather_page(ui, &cclip, cslide, e),
             }
         }
-        if self.show_settings || svis > 0.001 {
+        if self.show_settings {
             self.draw_settings_page(ui, painter, content, e, svis);
-        }        // "模块切换过渡：用岛体底色做淡入遮罩，让新页面“浮玐 "
+        }
+        // 过渡遮罩：模块切换 & 设置淡出共用一层岛体底色。
+        // 设置页不再在 show_settings=false 后继续绘制，避免其内容以半透明“残留”叠在新模块上。
+        let mut mask_a = 0.0f32;
         if switch_p < 0.999 {
-            let ma = ((1.0 - switch_p).powf(1.5) * self.cfg.alpha as f32) as u8;
+            mask_a = mask_a.max((1.0 - switch_p).powf(1.5));
+        }
+        if !self.show_settings && svis > 0.001 {
+            mask_a = mask_a.max(svis);
+        }
+        if mask_a > 0.001 {
+            let ma = (mask_a * self.cfg.alpha as f32) as u8;
             let mask = egui::Color32::from_rgba_unmultiplied(self.cfg.bg[0], self.cfg.bg[1], self.cfg.bg[2], ma);
             let rr = self.cfg.radius.min(content.height() * 0.5);
             painter.with_clip_rect(content).rect_filled(content, rr, mask);
