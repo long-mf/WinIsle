@@ -357,6 +357,8 @@ struct Config {
     collapsed_layout: String,
     /// 
     upd_seen_rail: String,
+    /// 收起态升级标记已展示过（首次发现后，展开过一次就不再在收起态显示；不影响设置角标）
+    upd_seen_collapsed: String,
     /// 
     upd_seen_row: String,
    /// ?yyyy-mm-dd
@@ -400,6 +402,7 @@ impl Default for Config {
             idle_face: 1,
             collapsed_layout: String::new(),
             upd_seen_rail: String::new(),
+            upd_seen_collapsed: String::new(),
             upd_seen_row: String::new(),
             upd_checked_day: String::new(),
    weather_city: String::new(), // "= 自��定位（音次拉取时探测扢在城市，
@@ -468,6 +471,7 @@ impl Config {
                     "spectrum" => cfg.spectrum = v == "1" || v == "true",
                     "water_spectrum" => cfg.water_spectrum = v == "1" || v == "true",
                     "upd_seen_rail" => cfg.upd_seen_rail = v.to_string(),
+                    "upd_seen_collapsed" => cfg.upd_seen_collapsed = v.to_string(),
                     "upd_seen_row" => cfg.upd_seen_row = v.to_string(),
                     "upd_checked_day" => cfg.upd_checked_day = v.to_string(),
                     "weather_city" => cfg.weather_city = v.to_string(),
@@ -504,7 +508,7 @@ if (cfg.idle_face as usize) >= FACES.len() || FACE_REMOVED[cfg.idle_face as usiz
 
     fn save(&self) {
         let text = format!(
-            "# WinIsle 配置\nposition={}\nx_frac={}\ny_frac={}\nfont={}\ndelay_ms={}\nbg={},{},{}\nalpha={}\nradius={}\nshow_seconds={}\nshow_date={}\nautostart={}\ntheme={}\nlyric_shift_ms={}\nroll_anim={}\nroll_ms={}\nchar_green={}\nmarquee={}\nedge_fade={}\nside_snap={}\nlyric_font={}\nspectrum={}\nwater_spectrum={}\ncollapsed_mode={}\nidle_face={}\ncollapsed_layout={}\nupd_seen_rail={}\nupd_seen_row={}\nupd_checked_day={}\nweather_city={}\nweather_city_name={}\nweather_unit={}\nmon_x={}\nmon_y={}\n",
+            "# WinIsle 配置\nposition={}\nx_frac={}\ny_frac={}\nfont={}\ndelay_ms={}\nbg={},{},{}\nalpha={}\nradius={}\nshow_seconds={}\nshow_date={}\nautostart={}\ntheme={}\nlyric_shift_ms={}\nroll_anim={}\nroll_ms={}\nchar_green={}\nmarquee={}\nedge_fade={}\nside_snap={}\nlyric_font={}\nspectrum={}\nwater_spectrum={}\ncollapsed_mode={}\nidle_face={}\ncollapsed_layout={}\nupd_seen_rail={}\nupd_seen_collapsed={}\nupd_seen_row={}\nupd_checked_day={}\nweather_city={}\nweather_city_name={}\nweather_unit={}\nmon_x={}\nmon_y={}\n",
             self.position.as_str(),
             self.x_frac,
             self.y_frac,
@@ -533,6 +537,7 @@ if (cfg.idle_face as usize) >= FACES.len() || FACE_REMOVED[cfg.idle_face as usiz
             self.idle_face,
             self.collapsed_layout,
             self.upd_seen_rail,
+            self.upd_seen_collapsed,
             self.upd_seen_row,
             self.upd_checked_day,
             self.weather_city,
@@ -2336,13 +2341,9 @@ fn comp_base_w(&self, id: &str) -> f32 {
             "lyrics" => CW_LYRICS,
             "face" => self.face_slot_w(),
             "clock" => {
-                // 有升级标记时：收起态用升级标记“替换”时间模块（不额外占宽）；
-                // 展开态不经过这里，时间/面板保持原样。
-                if self.show_time_update() {
-                    UPD_BADGE_W
-                } else {
-                    self.w_clock_w.max(CW_CLOCK)
-                }
+                // 时间槽固定宽度；升级标记作为独立组件在 active_comps 中额外加入，
+                // 超宽时优先“临时去掉末尾模块”，保证升级标记完整可见。
+                self.w_clock_w.max(CW_CLOCK)
             }
             "weather" => self.weather_slot_w(),
             _ => 0.0,
@@ -2414,6 +2415,30 @@ fn comp_gap(&self, prev: &str, cur: &str) -> f32 {
             fitted.push((id.clone(), *cw));
             used += gap + *cw;
             prev_id = Some(id.as_str());
+        }
+        // 升级标记：独立占用一段宽度。若加上后超过 520，就临时从末尾逐个去掉
+        // 模块，直到放得下——升级标记优先展示。展开一次后 show_collapsed_update
+        // 变 false，收起态自然恢复完整模块。
+        if self.show_collapsed_update() {
+            loop {
+                let mut total = CB_EDGE * 2.0;
+                let mut prev: Option<&str> = None;
+                for (id, cw) in fitted.iter() {
+                    if let Some(p) = prev {
+                        total += self.comp_gap(p, id);
+                    }
+                    total += *cw;
+                    prev = Some(id.as_str());
+                }
+                let gap = prev.map(|p| self.comp_gap(p, "upd_badge")).unwrap_or(0.0);
+                if fitted.is_empty()
+                    || total + gap + UPD_BADGE_W + CB_OUTER_EXTRA * 2.0 <= CW_MAX
+                {
+                    break;
+                }
+                fitted.pop();
+            }
+            fitted.push(("upd_badge".to_string(), UPD_BADGE_W));
         }
         fitted
     }
@@ -2712,6 +2737,25 @@ let conn_ok = if is_soda { self.soda_live_cached || self.from_smtc } else { true
         match self.upd_version() {
             Some(v) => v != self.cfg.upd_seen_rail,
             None => false,
+        }
+    }
+
+    /// 收起态升级标记：只在“首次发现该版本、且尚未展开过”时显示一次。
+    /// 展开一次后写入 upd_seen_collapsed，之后收起不再显示；设置齿轮角标仍由
+    /// show_time_update（upd_seen_rail）控制，未点击设置则一直保留。
+    fn show_collapsed_update(&self) -> bool {
+        match self.upd_version() {
+            Some(v) => v != self.cfg.upd_seen_rail && v != self.cfg.upd_seen_collapsed,
+            None => false,
+        }
+    }
+
+    fn mark_upd_collapsed_seen(&mut self) {
+        if let Some(v) = self.upd_version() {
+            if self.cfg.upd_seen_collapsed != v {
+                self.cfg.upd_seen_collapsed = v;
+                self.cfg.save();
+            }
         }
     }
 
@@ -3630,8 +3674,8 @@ if self.hwnd == 0 {
                     self.draw_marquee(&painter, text_rect, &text, egui::FontId::proportional(14.0), fg, t, false, self.cfg.edge_fade);
                 }
                 // 
-                // 收起态有升级标记时，用它替换时间（不再并排挤占宽度）
-                if self.show_time_update() {
+                // 收起态有升级标记时：升级标记 + 时间并排；若超宽，active_comps 会临时去掉末尾模块
+                if self.show_collapsed_update() {
                     let br = egui::Rect::from_min_size(
                         egui::pos2(pill.right() - 13.0 - UPD_BADGE_W, cy - UPD_BADGE_H * 0.5),
                         egui::vec2(UPD_BADGE_W, UPD_BADGE_H),
@@ -3684,13 +3728,26 @@ if self.hwnd == 0 {
                 let centered_a = (a as f32 * (1.0 - amt)) as u8; // "无音乐时居中时间，随音乐淡入而淡" 
                 let col = egui::Color32::from_rgba_unmultiplied(238, 240, 246, centered_a);
                 let font = bold_font(self.cfg.font);
-                if self.show_time_update() {
-                    // 有升级标记时替换掉时间
-                    let br = egui::Rect::from_center_size(
-                        pill.center(),
+                if self.show_collapsed_update() {
+                    // 有升级标记时：升级标记 + 时间（不替换）
+                    let time_w = painter
+                        .layout_no_wrap(s.clone(), font.clone(), col)
+                        .size()
+                        .x;
+                    let group_w = UPD_BADGE_W + UPD_BADGE_GAP + time_w;
+                    let start = pill.center().x - group_w * 0.5;
+                    let br = egui::Rect::from_min_size(
+                        egui::pos2(start, pill.center().y - UPD_BADGE_H * 0.5),
                         egui::vec2(UPD_BADGE_W, UPD_BADGE_H),
                     );
                     self.paint_update_pill(&painter, br, centered_a);
+                    time_rect = Some(painter.text(
+                        egui::pos2(start + UPD_BADGE_W + UPD_BADGE_GAP, pill.center().y - self.cfg.font * 0.06),
+                        egui::Align2::LEFT_CENTER,
+                        &s,
+                        font,
+                        col,
+                    ));
                 } else {
 
                     if let Some(w) = self.w_data.as_ref() {
@@ -3790,6 +3847,13 @@ if self.hwnd == 0 {
                     let sz = 15.0 + 2.0 * pulse;
                     draw_nav_icon(painter, 4, egui::pos2(cx, cy), sz, cc);
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+                }
+                "upd_badge" => {
+                    let br = egui::Rect::from_center_size(
+                        egui::pos2((x + x1) * 0.5, cy),
+                        egui::vec2(UPD_BADGE_W, UPD_BADGE_H),
+                    );
+                    self.paint_update_pill(painter, br, a);
                 }
                 "spectrum" => {
                     self.draw_spectrum(painter, x, base_y, green, t);
@@ -4256,22 +4320,13 @@ fn draw_collapsed_lyrics(&mut self, painter: &egui::Painter, text_rect: egui::Re
         // 与天气温度同源：同一 bold 13.5 字体，时间槽宽按实测文字宽度自适应，
         // 不再用固定 34px 槽宽把 36px 的 HH:MM 左右各裁 1px。
         self.w_clock_w = painter.layout_no_wrap(s.clone(), fid.clone(), tcol).size().x;
-        if self.show_time_update() {
-            // 收起态：升级标记替换时间模块（居中于原时间槽），不再并排显示时间
-            let br = egui::Rect::from_center_size(
-                egui::pos2((x + x1) * 0.5, cy),
-                egui::vec2(UPD_BADGE_W, UPD_BADGE_H),
-            );
-            self.paint_update_pill(painter, br, a);
-        } else {
-            painter.text(
-                egui::pos2((x + x1) * 0.5, cy - 0.5),
-                egui::Align2::CENTER_CENTER,
-                &s,
-                fid,
-                tcol,
-            );
-        }
+        painter.text(
+            egui::pos2((x + x1) * 0.5, cy - 0.5),
+            egui::Align2::CENTER_CENTER,
+            &s,
+            fid,
+            tcol,
+        );
     }
 
     /// + 
@@ -5123,6 +5178,10 @@ let ilt = (self.lyric_time() - self.lyr_lines[i].t).max(0.0);
     // ----------------  + ----------------
     ///  +  / / 
 fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pill: egui::Rect, e: f32, t: f64) {
+        // 展开过一次后，收起态不再显示升级标记（设置齿轮角标不受影响）。
+        if e > 0.5 {
+            self.mark_upd_collapsed_seen();
+        }
         let a = (((e - 0.5) * 2.0) * 255.0).clamp(0.0, 255.0) as u8;
         let rail_w = 66.0f32;
         let muted = egui::Color32::from_rgba_unmultiplied(150, 158, 175, a);
