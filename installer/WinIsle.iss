@@ -35,6 +35,7 @@ Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"; Flags: unchecked
 Name: "autostart"; Description: "开机自动启动 WinIsle"; GroupDescription: "附加任务:"; Flags: unchecked
 
 [Files]
@@ -43,7 +44,7 @@ Source: "..\target\release\winisle.exe"; DestDir: "{app}"; DestName: "{#AppExe}"
 [Icons]
 Name: "{group}\WinIsle"; Filename: "{app}\{#AppExe}"
 Name: "{group}\卸载 WinIsle"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\WinIsle"; Filename: "{app}\{#AppExe}"; Tasks: autostart
+Name: "{userdesktop}\WinIsle"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "WinIsle"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
