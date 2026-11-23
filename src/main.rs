@@ -1358,6 +1358,7 @@ struct IslandApp {
     fallback_cover_tex: Option<(u64, egui::TextureHandle)>,
     soda_cover_hash: u64,
     upd_badge_tex: Option<egui::TextureHandle>,
+    upd_badge_anim: f32,
     /// :1  Otto  FACES 
     face_frames: Vec<Option<Vec<egui::TextureHandle>>>,
     ///  UV =
@@ -1785,6 +1786,7 @@ let (r, cov, settled) = if light {
             fallback_cover_tex: None,
             soda_cover_hash: 0,
         upd_badge_tex: None,
+            upd_badge_anim: 0.0,
             face_frames: (0..FACES.len()).map(|_| None).collect(),
             face_content_uv: (0..FACES.len()).map(|_| None).collect(),
             media_title_at: Instant::now() - Duration::from_secs(10),
@@ -2294,6 +2296,26 @@ ctx.request_repaint_after(Duration::from_millis(16));
         }
     }
 
+    fn step_badge_anim(&mut self, ctx: &egui::Context) {
+        if let Ok(v) = std::env::var("WINISLE_UPD_BADGE_ANIM") {
+            if let Ok(f) = v.parse::<f32>() {
+                self.upd_badge_anim = f.clamp(0.0, 1.0);
+                return;
+            }
+        }
+        let target = if self.show_collapsed_update() { 1.0 } else { 0.0 };
+        if (self.upd_badge_anim - target).abs() > 0.001 {
+            let dt = ctx.input(|i| i.stable_dt).min(0.05);
+            let k = 1.0 - (-dt / 0.22).exp();
+            self.upd_badge_anim += (target - self.upd_badge_anim) * k;
+            if (self.upd_badge_anim - target).abs() < 0.002 {
+                self.upd_badge_anim = target;
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(16));
+            }
+        }
+    }
+
     fn comp_order(&self) -> Vec<(String, bool)> {
         const KNOWN: [&str; 5] = ["spectrum", "lyrics", "face", "clock", "weather"];
         let mut out: Vec<(String, bool)> = Vec::new();
@@ -2375,6 +2397,9 @@ fn comp_base_w(&self, id: &str) -> f32 {
 
     /// /music_amt     /// 10px 
 fn comp_gap(&self, prev: &str, cur: &str) -> f32 {
+        if cur == "upd_badge" {
+            return CB_GAP * self.upd_badge_anim.clamp(0.0, 1.0);
+        }
         let amt = self.music_amt.clamp(0.0, 1.0);
         let m = |id: &str| id == "spectrum" || id == "lyrics";
         if m(prev) && m(cur) {
@@ -2389,15 +2414,21 @@ fn comp_gap(&self, prev: &str, cur: &str) -> f32 {
     /// 0 (id, )
     fn active_comps(&self) -> Vec<(String, f32)> {
         let mut out = Vec::new();
-        // 有提醒时：在最左侧插入一枚铃铛，替换频谱槽位（不覆盖、不加宽）
-        if self.remind_alert.is_some() {
-            out.push(("bell".to_string(), 24.0));
-        }
+        // 有提醒时用铃铛替换频谱槽位：宽度与透明度都按 remind_alert_anim 平滑过渡，
+        // 避免频谱瞬间消失、铃铛瞬间出现造成突兀跳变。
+        let alert_p = self.remind_alert_anim.clamp(0.0, 1.0);
+        let alert_show = self.remind_alert.is_some() && alert_p > 0.001;
+        let spectrum_w = self.comp_eff_w("spectrum");
+        let mut bell_slot = false;
         for (id, on) in self.comp_order() {
-            if !on {
+            if id == "spectrum" && alert_show {
+                let base_w = if on { spectrum_w } else { 0.0 };
+                let bw = base_w + (24.0 - base_w) * alert_p;
+                out.push(("bell".to_string(), bw));
+                bell_slot = true;
                 continue;
             }
-            if self.remind_alert.is_some() && id == "spectrum" {
+            if !on {
                 continue;
             }
             let w = self.comp_eff_w(&id);
@@ -2406,6 +2437,9 @@ fn comp_gap(&self, prev: &str, cur: &str) -> f32 {
             if w > 0.5 || (is_music && self.music_amt.clamp(0.0, 1.0) > 0.002) {
                 out.push((id, w));
             }
+        }
+        if alert_show && !bell_slot {
+            out.push(("bell".to_string(), 24.0 * alert_p));
         }
         // 宽度优先级适配：按 comp_order 顺序累加，一旦加入下一个组件会超过 CW_MAX，
         // 就从这里截断、丢弃后面的低优先级模块——避免升级标记等额外宽度把收起态
@@ -2423,10 +2457,11 @@ fn comp_gap(&self, prev: &str, cur: &str) -> f32 {
             used += gap + *cw;
             prev_id = Some(id.as_str());
         }
-        // 升级标记：独立占用一段宽度。若加上后超过 520，就临时从末尾逐个去掉
-        // 模块，直到放得下——升级标记优先展示。展开一次后 show_collapsed_update
-        // 变 false，收起态自然恢复完整模块。
-        if self.show_collapsed_update() {
+        // 升级标记：宽度随 upd_badge_anim 从 0→40 平滑展开（收起时反向收回），
+        // 让相邻模块顺势滑动而不是瞬间挤开/弹回。若仍超 520，才从末尾临时去掉模块。
+        let uba = self.upd_badge_anim.clamp(0.0, 1.0);
+        if self.show_collapsed_update() || uba > 0.001 {
+            let badge_w = UPD_BADGE_W * uba;
             loop {
                 let mut total = CB_EDGE * 2.0;
                 let mut prev: Option<&str> = None;
@@ -2439,13 +2474,15 @@ fn comp_gap(&self, prev: &str, cur: &str) -> f32 {
                 }
                 let gap = prev.map(|p| self.comp_gap(p, "upd_badge")).unwrap_or(0.0);
                 if fitted.is_empty()
-                    || total + gap + UPD_BADGE_W + CB_OUTER_EXTRA * 2.0 <= CW_MAX
+                    || total + gap + badge_w + CB_OUTER_EXTRA * 2.0 <= CW_MAX
                 {
                     break;
                 }
                 fitted.pop();
             }
-            fitted.push(("upd_badge".to_string(), UPD_BADGE_W));
+            if badge_w > 0.01 {
+                fitted.push(("upd_badge".to_string(), badge_w));
+            }
         }
         fitted
     }
@@ -3833,34 +3870,46 @@ if self.hwnd == 0 {
             let x1 = (x + *cw).min(pill.right() - 2.0);
             match id.as_str() {
                 "bell" => {
+                    let p = self.remind_alert_anim.clamp(0.0, 1.0);
+                    // 与原频谱交叉淡出/淡入：警报出现时频谱淡出、铃铛淡入，反之亦然。
+                    let has_spec = self.comp_order().iter().any(|(sid, on)| sid == "spectrum" && *on);
+                    if has_spec && p < 0.999 {
+                        let ga = (am as f32 * (1.0 - p)) as u8;
+                        let g = egui::Color32::from_rgba_unmultiplied(64, 214, 160, ga);
+                        self.draw_spectrum(painter, x, base_y, g, t);
+                    }
                     let icon = self.remind_alert
                         .and_then(|id| self.reminders.iter().find(|r| r.id == id).map(|r| r.icon))
                         .unwrap_or(1);
                     let col = remind_color(icon);
-                    let cc = egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], a);
+                    let ca = (a as f32 * p) as u8;
+                    let cc = egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], ca);
                     let cx = (x + x1) * 0.5;
                     let pulse = 0.5 + 0.5 * (t * (std::f64::consts::TAU / 1.1)).sin() as f32;
                     // 两圈波纹扩散（1.1s 与边缘呼吸同频）
                     for k in 0..2 {
                         let ph = (((t / 1.1) + k as f64 * 0.5) % 1.0) as f32;
                         let rr = 6.5 + ph * 8.5;
-                        let ra = (a as f32 * 0.38 * (1.0 - ph)) as u8;
+                        let ra = (ca as f32 * 0.38 * (1.0 - ph)) as u8;
                         painter.circle_stroke(
                             egui::pos2(cx, cy),
                             rr,
                             egui::Stroke::new(1.1, egui::Color32::from_rgba_unmultiplied(col[0], col[1], col[2], ra)),
                         );
                     }
-                    let sz = 15.0 + 2.0 * pulse;
+                    let sz = (15.0 + 2.0 * pulse) * (0.7 + 0.3 * p);
                     draw_nav_icon(painter, 4, egui::pos2(cx, cy), sz, cc);
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
                 }
                 "upd_badge" => {
+                    let p = self.upd_badge_anim.clamp(0.0, 1.0);
+                    let bw = (x1 - x).max(0.0);
+                    let bh = UPD_BADGE_H * (0.6 + 0.4 * p);
                     let br = egui::Rect::from_center_size(
                         egui::pos2((x + x1) * 0.5, cy),
-                        egui::vec2(UPD_BADGE_W, UPD_BADGE_H),
+                        egui::vec2(bw, bh),
                     );
-                    self.paint_update_pill(painter, br, a);
+                    self.paint_update_pill(painter, br, (a as f32 * p) as u8);
                 }
                 "spectrum" => {
                     self.draw_spectrum(painter, x, base_y, green, t);
@@ -9118,7 +9167,7 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
             }
         }
         y += row_h;
-        row_label(painter, y, "检查更新", accent);
+        row_label(painter, y, "检查更新", ink);
         {
             let up_row = egui::Rect::from_min_max(
                 egui::pos2(left, y + 3.0),
@@ -9126,35 +9175,46 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
             );
             let ver = self.upd_ver.as_ref().map(|m| m.version.clone()).unwrap_or_default();
             let pct = self.upd_dl_pct.load(std::sync::atomic::Ordering::Relaxed);
-            let (txt, col, green, show_dot, progress, enabled) = if self.upd_busy {
+            let (prefix, action, col, green, show_dot, progress, enabled) = if self.upd_busy {
                 if pct >= 100 {
-                    (format!("v{} · 正在安装 v{}", update::VERSION, ver), accent, true, false, Some(100u8), false)
+                    (format!("v{} · 正在安装 v{}", update::VERSION, ver), String::new(), accent, true, false, Some(100u8), false)
                 } else {
-                    (format!("v{} · 正在下载 v{}{}%", update::VERSION, ver, pct), accent, true, false, Some(pct), false)
+                    (format!("v{} · 正在下载 v{}{}%", update::VERSION, ver, pct), String::new(), accent, true, false, Some(pct), false)
                 }
             } else if let Some(m) = &self.upd_ver {
                 (
-                    format!("v{} · 更新 (v{})", update::VERSION, m.version),
-                    accent,
+                    format!("v{} · ", update::VERSION),
+                    format!("更新 (v{})", m.version),
+                    muted2,
                     true,
                     self.show_row_update(),
                     None,
                     true,
                 )
             } else if self.upd_checking {
-                (format!("v{} · 检查中", update::VERSION), muted2, false, false, None, false)
+                (format!("v{} · 检查中", update::VERSION), String::new(), muted2, false, false, None, false)
             } else if self.upd_msg.contains("失败") {
-                (self.upd_msg.clone(), egui::Color32::from_rgba_unmultiplied(230, 120, 120, a), false, false, None, true)
+                (self.upd_msg.clone(), String::new(), egui::Color32::from_rgba_unmultiplied(230, 120, 120, a), false, false, None, true)
             } else if self.upd_msg.contains("稍后") && check_is_throttled(self.upd_last_manual.elapsed()) {
-                (self.upd_msg.clone(), muted2, false, false, None, true)
+                (self.upd_msg.clone(), String::new(), muted2, false, false, None, true)
             } else if self.upd_msg.contains("已是最新") {
-                (format!("v{} · 已是最新 · 检查更新", update::VERSION), accent, false, false, None, true)
+                (format!("v{} · 已是最新 · ", update::VERSION), "检查更新".to_string(), muted2, false, false, None, true)
             } else {
-                (format!("v{} · 检查更新", update::VERSION), accent, false, false, None, true)
+                (format!("v{} · ", update::VERSION), "检查更新".to_string(), muted2, false, false, None, true)
             };
             let font = bold_font(11.5);
-            // v0.2.1  
-            painter.text(egui::pos2(right, y + row_h * 0.5), egui::Align2::RIGHT_CENTER, txt, font, col);
+            let row_cy = y + row_h * 0.5;
+            if action.is_empty() {
+                painter.text(egui::pos2(right, row_cy), egui::Align2::RIGHT_CENTER, prefix, font, col);
+            } else {
+                // 只把末尾的动作词（“检查更新”/“更新 (vX)”）做成高亮，前缀保持原样。
+                let aw = painter
+                    .layout_no_wrap(action.clone(), font.clone(), accent)
+                    .size()
+                    .x;
+                painter.text(egui::pos2(right, row_cy), egui::Align2::RIGHT_CENTER, action, font.clone(), accent);
+                painter.text(egui::pos2(right - aw - 5.0, row_cy), egui::Align2::RIGHT_CENTER, prefix, font, col);
+            }
             if green {
                 // 
                 if show_dot {
@@ -9690,6 +9750,7 @@ if let Ok(v) = std::env::var("WINISLE_IDLE_FACE") {
         self.perf_region_ms = 0.0;
         self.perf_netease_ms = 0.0;
         self.poll_update();
+        self.step_badge_anim(ctx);
         self.poll_weather();
         self.poll_city_search();
         self.ensure_window(ctx, frame);
