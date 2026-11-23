@@ -45,6 +45,8 @@ fn face_kept_indices() -> Vec<usize> {
 const UPD_BADGE_W: f32 = 40.0;
 const UPD_BADGE_H: f32 = 15.3;
 const UPD_BADGE_GAP: f32 = 8.0;
+/// 更新检查节流：自动检查与手动点击共用 30 分钟冷却。
+const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const CW_SPECTRUM: f32 = 13.0;
 const CW_LYRICS: f32 = 200.0;
 const CW_FACE: f32 = 48.0;
@@ -1467,6 +1469,7 @@ struct IslandApp {
     upd_checking: bool,
     upd_busy: bool,
     upd_last_check: Instant,
+    upd_last_manual: Instant,
     upd_rx: Option<std::sync::mpsc::Receiver<Result<Option<update::Manifest>, String>>>,
     upd_inst_rx: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
     /// UI ?
@@ -1844,6 +1847,7 @@ let (r, cov, settled) = if light {
             upd_checking: false,
             upd_busy: false,
             upd_last_check: Instant::now() - Duration::from_secs(5 * 3600),
+            upd_last_manual: Instant::now() - Duration::from_secs(5 * 3600),
             upd_rx: None,
             upd_inst_rx: None,
             upd_dl_pct: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0)),
@@ -2393,7 +2397,23 @@ fn comp_gap(&self, prev: &str, cur: &str) -> f32 {
                 out.push((id, w));
             }
         }
-        out
+        // 宽度优先级适配：按 comp_order 顺序累加，一旦加入下一个组件会超过 CW_MAX，
+        // 就从这里截断、丢弃后面的低优先级模块——避免升级标记等额外宽度把收起态
+        // 撑出 520 上限后被直接裁掉。用户可在“收起态展示模块及排序”里调整谁先谁后。
+        let mut fitted: Vec<(String, f32)> = Vec::new();
+        let mut used = CB_EDGE * 2.0;
+        let mut prev_id: Option<&str> = None;
+        for (id, cw) in out.iter() {
+            let gap = prev_id.map(|p| self.comp_gap(p, id)).unwrap_or(0.0);
+            let candidate = used + gap + *cw + CB_OUTER_EXTRA * 2.0;
+            if !fitted.is_empty() && candidate > CW_MAX {
+                break;
+            }
+            fitted.push((id.clone(), *cw));
+            used += gap + *cw;
+            prev_id = Some(id.as_str());
+        }
+        fitted
     }
 
     /// [72, CW_MAX]
@@ -8121,8 +8141,15 @@ let col = egui::Color32::from_rgba_unmultiplied(170, 178, 195, a);
         if self.upd_checking || self.upd_busy {
             return;
         }
-        // 自动检查每天最多一次；但用户手动点击“检查更新”时必须强制重新检查
-        if update_check_skipped(force, &self.cfg.upd_checked_day, &update::today_local(), self.upd_ver.is_some()) {
+        // 统一节流：自动检查与手动点击都按 30 分钟一次。
+        // 手动点击若距上次手动检查不足 30 分钟，提示稍后再试，而不是静默吞掉。
+        if force {
+            if check_is_throttled(self.upd_last_manual.elapsed()) {
+                self.upd_msg = "检查太频繁，请稍后再试".to_string();
+                return;
+            }
+            self.upd_last_manual = Instant::now();
+        } else if check_is_throttled(self.upd_last_check.elapsed()) {
             return;
         }
         self.upd_checking = true;
@@ -8203,11 +8230,11 @@ fn poll_update(&mut self) {
                 }
             }
         }
-        //  5s  4 ?
+        // 自动检查：每 30 分钟一次（不再受“当天已检查”限制）
         if self.upd_rx.is_none()
             && !self.upd_checking
-            && self.upd_last_check.elapsed() > Duration::from_secs(4 * 3600)
-            && self.cfg.upd_checked_day != update::today_local()
+            && !self.upd_busy
+            && self.upd_last_check.elapsed() >= UPDATE_CHECK_INTERVAL
         {
             self.start_update_check(false);
         }
@@ -9032,8 +9059,6 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
                 egui::pos2(right - 220.0, y + 3.0),
                 egui::pos2(right, y + row_h - 3.0),
             );
-            let today = update::today_local();
-            let checked_today = self.cfg.upd_checked_day == today;
             let ver = self.upd_ver.as_ref().map(|m| m.version.clone()).unwrap_or_default();
             let pct = self.upd_dl_pct.load(std::sync::atomic::Ordering::Relaxed);
             let (txt, col, green, show_dot, progress, enabled) = if self.upd_busy {
@@ -9055,8 +9080,10 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
                 (format!("v{} · 检查中", update::VERSION), muted2, false, false, None, false)
             } else if self.upd_msg.contains("失败") {
                 (self.upd_msg.clone(), egui::Color32::from_rgba_unmultiplied(230, 120, 120, a), false, false, None, true)
-            } else if checked_today {
-                (format!("v{} · 已是最新 · 点此重查", update::VERSION), muted2, false, false, None, true)
+            } else if self.upd_msg.contains("稍后") && check_is_throttled(self.upd_last_manual.elapsed()) {
+                (self.upd_msg.clone(), muted2, false, false, None, true)
+            } else if self.upd_msg.contains("已是最新") {
+                (format!("v{} · 已是最新 · 检查更新", update::VERSION), muted2, false, false, None, true)
             } else {
                 (format!("v{} · 检查更新", update::VERSION), muted2, false, false, None, true)
             };
@@ -10690,9 +10717,9 @@ let target_ms: u64 = if animating { 16 } else { 200 };
     }
 }
 
-/// 自动更新节流：自动检查每天最多一次；手动点击（force）永远不被节流。
-fn update_check_skipped(force: bool, checked_day: &str, today: &str, has_update: bool) -> bool {
-    !force && checked_day == today && !has_update
+/// 更新检查节流：距离上次检查不足 30 分钟则视为过频（自动/手动共用同一节奏）。
+fn check_is_throttled(elapsed: Duration) -> bool {
+    elapsed < UPDATE_CHECK_INTERVAL
 }
 
 fn gate_startup_hover(armed: bool, raw_hover: bool, settled: bool) -> (bool, bool) {
@@ -11428,17 +11455,17 @@ fn make_tex(ctx: &egui::Context, name: &str, bytes: &'static [u8], w: usize, h: 
 
 #[cfg(test)]
 mod hover_gate_tests {
-    use super::{gate_startup_hover, update_check_skipped};
+    use super::{check_is_throttled, gate_startup_hover};
+    use std::time::Duration;
 
     #[test]
-    fn manual_update_check_bypasses_daily_throttle() {
-        // 今天已自动检查过且没有发现更新：自动检查应跳过，但手动点击必须继续
-        assert!(update_check_skipped(false, "2026-11-23", "2026-11-23", false));
-        assert!(!update_check_skipped(true, "2026-11-23", "2026-11-23", false));
-        // 换了一天，自动检查应继续
-        assert!(!update_check_skipped(false, "2026-11-22", "2026-11-23", false));
-        // 已经发现更新时，自动检查也应继续（用于刷新进度/状态）
-        assert!(!update_check_skipped(false, "2026-11-23", "2026-11-23", true));
+    fn update_check_cooldown_is_30_minutes() {
+        // 不足 30 分钟：自动与手动都应节流
+        assert!(check_is_throttled(Duration::from_secs(29 * 60)));
+        assert!(check_is_throttled(Duration::ZERO));
+        // 满 30 分钟：允许再次检查
+        assert!(!check_is_throttled(Duration::from_secs(30 * 60)));
+        assert!(!check_is_throttled(Duration::from_secs(31 * 60)));
     }
 
     #[test]
