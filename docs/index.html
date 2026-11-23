@@ -62,7 +62,8 @@
 
   .hero-shot{position:relative}
   .hero-shot .frame{background:linear-gradient(180deg,#1c2523,#121817);border:1px solid var(--line2);border-radius:24px;padding:11px;box-shadow:0 34px 80px rgba(0,0,0,.6),0 0 0 1px rgba(18,165,148,.07)}
-  .hero-shot .frame img{display:block;width:100%;border-radius:15px}
+  .hero-shot .frame img,.hero-shot .frame video{display:block;width:100%;border-radius:15px}
+  .hero-shot .frame video{aspect-ratio:1400/760;object-fit:cover;background:#0b0e0e}
   .float-icon{display:block;width:92px !important;height:92px !important;border-radius:22px;box-shadow:0 18px 40px rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.08)}
   .hero-shot .glow{position:absolute;inset:-46px;background:radial-gradient(closest-side,rgba(18,165,148,.18),transparent);z-index:-1}
   .float-icon{position:absolute;left:-22px;bottom:-22px;width:92px;height:92px;border-radius:22px;box-shadow:0 18px 40px rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.06)}
@@ -193,7 +194,12 @@
     </div>
     <div class="hero-shot">
       <div class="glow"></div>
-      <div class="frame" style="padding:0;background:transparent;border:0;box-shadow:0 34px 80px rgba(0,0,0,.55)"><img src="img/showcase_music.png" alt="WinIsle 黑胶音乐岛：黑胶唱片、逐字歌词与实时水波频谱"></div>
+      <div class="frame" style="padding:0;background:transparent;border:0;box-shadow:0 34px 80px rgba(0,0,0,.55)">
+        <video class="hero-video" autoplay muted loop playsinline preload="metadata" poster="media/demo-music-poster.jpg" aria-label="WinIsle 黑胶音乐岛演示：黑胶唱片、逐字歌词与实时水波频谱">
+          <source src="media/demo-music.mp4" type="video/mp4">
+          <source src="media/demo-music.webm" type="video/webm">
+        </video>
+      </div>
     </div>
   </div>
 </header>
@@ -424,6 +430,31 @@
   } catch (e) {
     ['ver-top','ver-dl','size-top','size-dl','date-dl'].forEach(id => set(id, ''));
   }
+})();
+</script>
+<script>
+(() => {
+  const v = document.querySelector('.hero-video');
+  if (!v) return;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const small  = window.matchMedia('(max-width: 960px)');
+  const canPlay = () => !reduce.matches && !small.matches;
+  const sync = () => { if (canPlay()) { v.play().catch(() => {}); } else { v.pause(); } };
+  sync();
+  reduce.addEventListener && reduce.addEventListener('change', sync);
+  small.addEventListener && small.addEventListener('change', sync);
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((es) => {
+      es.forEach((e) => { if (e.isIntersecting && canPlay()) v.play().catch(() => {}); else v.pause(); });
+    }, { threshold: 0.25 }).observe(v);
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) v.pause(); else if (canPlay()) v.play().catch(() => {}); });
+  v.addEventListener('error', () => {
+    const img = document.createElement('img');
+    img.src = 'img/showcase_music.png';
+    img.alt = 'WinIsle 黑胶音乐岛：黑胶唱片、逐字歌词与实时水波频谱';
+    v.replaceWith(img);
+  });
 })();
 </script>
 </body>
