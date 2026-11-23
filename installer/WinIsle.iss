@@ -51,6 +51,15 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "运行 WinIsle"; Flags: nowait postinstall skipifsilent
+; 应用内更新走静默安装（skipifsilent 会跳过上面的 postinstall 启动），
+; 这里在收到 /WINISLEUPDATE 标记时显式重启新版，避免“更新后不自动重启”。
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: IsWinIsleUpdate
+
+[Code]
+function IsWinIsleUpdate: Boolean;
+begin
+  Result := Pos('/WINISLEUPDATE', Uppercase(GetCmdTail)) > 0;
+end;
 
 ; 卸载时兜底清理快捷方式（即使安装日志缺失或用户曾手工创建同名快捷方式也能删干净）
 [UninstallDelete]

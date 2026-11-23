@@ -378,7 +378,7 @@ pub fn download_setup(m: &Manifest) -> Result<PathBuf, String> {
 /// 启动安装器（Inno Setup 静默模式）。成功后本进程应尽快退出。
 pub fn run_setup(path: &Path) -> Result<(), String> {
     std::process::Command::new(path)
-        .args(["/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", "/NORESTART"])
+        .args(["/SILENT", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS", "/NORESTART", "/WINISLEUPDATE=1"])
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())

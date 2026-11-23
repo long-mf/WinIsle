@@ -8348,7 +8348,12 @@ fn poll_update(&mut self) {
                 self.upd_inst_rx = None;
                 self.upd_busy = false;
                 match r {
-                    Ok(()) => self.upd_msg = "安装程序已启动".to_string(),
+                    Ok(()) => {
+                        self.upd_msg = "安装程序已启动".to_string();
+                        // 主动退出，让安装器能替换 exe；安装器带 /WINISLEUPDATE 标记，
+                        // 静默安装结束后会自行重新启动新版。
+                        self.exit_start = Some(Instant::now());
+                    }
                     Err(e) => self.upd_msg = format!("更新失败：{}", e),
                 }
             }
@@ -8357,7 +8362,7 @@ fn poll_update(&mut self) {
         if self.upd_rx.is_none()
             && !self.upd_checking
             && !self.upd_busy
-            && self.upd_last_check.elapsed() >= UPDATE_CHECK_INTERVAL
+            && self.upd_last_check.elapsed() >= update_check_interval()
         {
             self.start_update_check(false);
         }
@@ -10854,7 +10859,19 @@ let target_ms: u64 = if animating { 16 } else { 200 };
 
 /// 更新检查节流：距离上次检查不足 30 分钟则视为过频（自动/手动共用同一节奏）。
 fn check_is_throttled(elapsed: Duration) -> bool {
-    elapsed < UPDATE_CHECK_INTERVAL
+    elapsed < update_check_interval()
+}
+
+/// 自动检查间隔；`WINISLE_UPDATE_CHECK_SECS` 仅供本地调试缩短（>=1 秒）。
+fn update_check_interval() -> Duration {
+    if let Ok(v) = std::env::var("WINISLE_UPDATE_CHECK_SECS") {
+        if let Ok(s) = v.trim().parse::<u64>() {
+            if s > 0 {
+                return Duration::from_secs(s);
+            }
+        }
+    }
+    UPDATE_CHECK_INTERVAL
 }
 
 fn gate_startup_hover(armed: bool, raw_hover: bool, settled: bool) -> (bool, bool) {
