@@ -7294,34 +7294,6 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
             ];
             p.add(egui::Shape::line(pts, egui::Stroke::new(1.8 * f, col)));
         }
-        fn draw_box(p: &egui::Painter, c: egui::Pos2, size: f32, col: egui::Color32) {
-            let f = size / 24.0;
-            let st = egui::Stroke::new(1.4 * f, col);
-            let l = c.x - 6.0 * f;
-            let r = c.x + 6.0 * f;
-            let t = c.y - 3.0 * f;
-            let b = c.y + 7.0 * f;
-            // 
-            p.add(egui::Shape::line(
-                vec![egui::pos2(l, t), egui::pos2(l, b), egui::pos2(r, b), egui::pos2(r, t)],
-                st,
-            ));
-            // 
-            p.add(egui::Shape::line(
-                vec![egui::pos2(l - 1.0 * f, t), egui::pos2(r + 1.0 * f, t)],
-                st,
-            ));
-            // 
-            p.add(egui::Shape::line(
-                vec![
-                    egui::pos2(c.x - 2.0 * f, t),
-                    egui::pos2(c.x - 2.0 * f, t - 2.0 * f),
-                    egui::pos2(c.x + 2.0 * f, t - 2.0 * f),
-                    egui::pos2(c.x + 2.0 * f, t),
-                ],
-                st,
-            ));
-        }
         fn draw_trash(p: &egui::Painter, c: egui::Pos2, size: f32, col: egui::Color32) {
             let f = size / 24.0;
             let st = egui::Stroke::new(1.4 * f, col);
@@ -7792,7 +7764,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                         // 
                         let title_x = x0 + 25.0;
                         let btn_area = if t.done {
-                            let bw = 6.0 + 12.0 + 4.0 + text_w(ui, "归档", act_font.clone()) + 6.0;
+                            let bw = 10.0 + text_w(ui, "归档", act_font.clone()) + 10.0;
                             bw
                         } else {
                             0.0
@@ -7820,10 +7792,9 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                                 && (ui.rect_contains_pointer(btn)
                                     || std::env::var_os("WINISLE_TODO_ACT_HOVER").is_some());
                             let acol = if hov { accent } else { muted2 };
-                            draw_box(p, egui::pos2(btn.left() + 6.0 + 6.0, ry), 12.0, acol);
                             p.text(
-                                egui::pos2(btn.left() + 6.0 + 12.0 + 4.0, ry),
-                                egui::Align2::LEFT_CENTER,
+                                btn.center(),
+                                egui::Align2::CENTER_CENTER,
                                 "归档",
                                 act_font.clone(),
                                 acol,
@@ -7880,20 +7851,19 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     let ry = y + 13.0;
                     let visible = ry >= list_top - 13.0 && ry <= list_bottom + 13.0;
                     if visible {
-                        draw_box(p, egui::pos2(x0 + 7.0, ry), 14.0, muted2);
-                        let rw = text_w(ui, "恢在", act_font.clone());
+                        let rw = text_w(ui, "恢复", act_font.clone());
                         let bw = 10.0 + rw + 10.0;
                         let btn = egui::Rect::from_min_size(egui::pos2(x1 - del_w - bw, ry - 10.0), egui::vec2(bw, 20.0));
-                        let avail = (btn.left() - 8.0) - (x0 + 24.0);
+                        let avail = (btn.left() - 8.0) - (x0 + 10.0);
                         let shown = fit_text(ui, &t.title, arch_title_font.clone(), avail);
-                        p.text(egui::pos2(x0 + 24.0, ry), egui::Align2::LEFT_CENTER, &shown, arch_title_font.clone(), muted);
+                        p.text(egui::pos2(x0 + 10.0, ry), egui::Align2::LEFT_CENTER, &shown, arch_title_font.clone(), muted);
                         // 
                         let rhov = interactive
                             && visible
                             && (ui.rect_contains_pointer(btn)
                                 || std::env::var_os("WINISLE_TODO_ACT_HOVER").is_some());
                         let rcol = if rhov { accent } else { muted2 };
-                        p.text(btn.center(), egui::Align2::CENTER_CENTER, "恢在", act_font.clone(), rcol);
+                        p.text(btn.center(), egui::Align2::CENTER_CENTER, "恢复", act_font.clone(), rcol);
                         if interactive && visible {
                             let br = ui
                                 .interact(btn, ui.id().with(("todo_restore", t.id)), egui::Sense::click())
