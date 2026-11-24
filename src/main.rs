@@ -7667,7 +7667,13 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         let arch_act = ui
             .ctx()
             .animate_bool_with_time(ui.id().with("todo_tab_arch"), self.todo_tab == 1, 0.18);
-        if all_act < 0.999 || inc_act < 0.999 || done_act < 0.999 || arch_act < 0.999 {
+        // 仅在选中态动画「确实处于过渡中」时请求重绘：
+// animate_bool_with_time 稳定后返回精确 0.0 / 1.0，未选中的 tab 恒为 0.0，
+// 旧条件 < 0.999 会把「未选中=0」误判为动画中，导致整页每帧狂刷（实测 250~290fps）。
+        let tab_animating = [all_act, inc_act, done_act, arch_act]
+            .iter()
+            .any(|v| *v > 0.001 && *v < 0.999);
+        if tab_animating {
             ui.ctx().request_repaint();
         }
 
