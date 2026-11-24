@@ -402,7 +402,8 @@ impl Default for Config {
             char_green: true,
             marquee: true,
             edge_fade: true,
-            side_snap: true,
+            // 左右贴边吸附默认关闭（用户可在 设置 里手动开启）
+            side_snap: false,
             lyric_font: 13.0,
             spectrum: true,
             water_spectrum: true,
