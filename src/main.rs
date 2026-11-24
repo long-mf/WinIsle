@@ -10289,15 +10289,22 @@ if self.app_is_soda() {
                         {
                             t.clip_duration
                         }
+                        // 汽水曲目的真实时长以它自己的 track/DOM 为准。SMTC/Soda 偶发把
+                        // 当前曲目误报成某个 60s 预加载元素的时长；若把 60 当成 hint，
+                        // 会把真正 195s 的当前媒体元素过滤掉，选中旧元素并锁死成 1:00。
+                        Some(t) if t.full_duration > 20.0 => t.full_duration,
                         _ => hint_dur,
                     };
+                    // DOM 进度先取一份：既作为媒体时钟不可用时的回退，也用来判断
+                    // 试听片段的媒体元素 currentTime 是“片段内相对时间”还是“整曲绝对时间”；
+                    // 同时给暂停态的媒体元素选择提供更准的位置提示（当前曲目的真实位置
+                    // 往往就在 DOM 进度条上，而 self.current_pos() 可能还停在上一拍）。
+                    let pr = crate::cdp_lyric::fetch_progress(dur);
+                    let media_hint_pos = pr.map(|(p, _, _)| p).unwrap_or(hint_pos);
                     // 位置源适配：汽水优先读播放器内核的真实媒体时钟（audio/video.currentTime），
                     // 它连续、精确，没有 DOM 进度条 1 秒一跳、滞后 0.75–1.7 秒的问题。
                     // 只有在读不到媒体元素时才回退到旧的 DOM 进度 + 播放态。
-                    let mc = crate::cdp_lyric::fetch_media_clock(hint_pos, media_hint_dur);
-                    // DOM 进度仍取一份：既作为媒体时钟不可用时的回退，也用来判断
-                    // 试听片段的媒体元素 currentTime 是“片段内相对时间”还是“整曲绝对时间”。
-                    let pr = crate::cdp_lyric::fetch_progress(dur);
+                    let mc = crate::cdp_lyric::fetch_media_clock(media_hint_pos, media_hint_dur);
                     let pl = if let Some(m) = mc {
                         Some(!m.paused)
                     } else {
@@ -10488,6 +10495,12 @@ let first_song = self.trial_since.is_empty();
             self.soda_trial_active = false;
             self.soda_trial_hint = false;
             self.soda_last_p = -1.0;
+            // 切歌时清掉上一首的时长/播放态缓存，避免新曲在第一次媒体时钟回报前
+            // 继续显示上一首的“1:00 / 暂停”，也避免拿旧时长去挑当前媒体元素。
+            self.soda_dur = 0.0;
+            self.soda_playing = None;
+            self.soda_precise = false;
+            self.soda_pos_at = Instant::now() - Duration::from_secs(5);
             self.trial_since = if first_song {
                 String::new()
             } else {
