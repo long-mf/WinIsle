@@ -36,7 +36,7 @@ impl Tray {
         let tray = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_menu_on_left_click(false) // 只有右键弹菜单；左键无动作
-            .with_tooltip("WinIsle")
+            .with_tooltip(if cfg!(feature = "dev-icon") { "WinIsle 开发版" } else { "WinIsle" })
             .with_icon(icon)
             .build()
             .ok()?;
@@ -62,7 +62,14 @@ impl Tray {
 }
 
 /// 托盘图标：与 exe 图标同一套「WinIsle」品牌（深色圆角方块 + M 立于青绿孤岛）。
-/// 32×32 RGBA 由 assets/winisle_32.rgba 在构建期嵌入，避免运行时绘制差异。
+/// 32×32 RGBA 由 assets 在构建期嵌入，避免运行时绘制差异。
+/// 开发版（`--features dev-icon`）使用带琥珀色 DEV 角标的图标，便于与正式版区分。
+#[cfg(not(feature = "dev-icon"))]
 fn make_icon_rgba(_w: u32, _h: u32) -> (Vec<u8>, u32, u32) {
     (include_bytes!("../assets/winisle_32.rgba").to_vec(), 32, 32)
+}
+
+#[cfg(feature = "dev-icon")]
+fn make_icon_rgba(_w: u32, _h: u32) -> (Vec<u8>, u32, u32) {
+    (include_bytes!("../assets/winisle_dev_32.rgba").to_vec(), 32, 32)
 }

@@ -16,6 +16,7 @@ mod weather;
 mod audio_meter;
 mod soda_now;
 mod life;
+mod note;
 
 use eframe::egui;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -368,7 +369,14 @@ struct Config {
 
     weather_city_name: String,
 
+    /// 温度单位仅保留摄氏度；字段保留用于兼容旧配置，读取时强制归零。
     weather_unit: u8,
+
+    /// 收起态是否显示温度数值（默认显示）。
+    weather_show_temp: bool,
+
+    /// 收起态是否显示天气文字，如「晴/多云」（默认不显示，维持现有收起态简洁样式）。
+    weather_show_text: bool,
 }
 
 impl Default for Config {
@@ -408,6 +416,8 @@ impl Default for Config {
    weather_city: String::new(), // "= 自��定位（音次拉取时探测扢在城市，
             weather_city_name: String::new(),
             weather_unit: 0,
+            weather_show_temp: true,
+            weather_show_text: false,
         }
     }
 }
@@ -477,6 +487,8 @@ impl Config {
                     "weather_city" => cfg.weather_city = v.to_string(),
                     "weather_city_name" => cfg.weather_city_name = v.to_string(),
                     "weather_unit" => cfg.weather_unit = v.parse().unwrap_or(cfg.weather_unit),
+                    "weather_show_temp" => cfg.weather_show_temp = v == "1" || v == "true",
+                    "weather_show_text" => cfg.weather_show_text = v == "1" || v == "true",
                     _ => {}
                 }
             }
@@ -503,12 +515,16 @@ if (cfg.idle_face as usize) >= FACES.len() || FACE_REMOVED[cfg.idle_face as usiz
         }
         //         cfg.weather_city.clear();
         cfg.weather_city_name.clear();
+        // 天气不提供设置项：固定摄氏度，收起态固定显示图标与温度。
+        cfg.weather_unit = 0;
+        cfg.weather_show_temp = true;
+        cfg.weather_show_text = false;
         cfg
     }
 
     fn save(&self) {
         let text = format!(
-            "# WinIsle 配置\nposition={}\nx_frac={}\ny_frac={}\nfont={}\ndelay_ms={}\nbg={},{},{}\nalpha={}\nradius={}\nshow_seconds={}\nshow_date={}\nautostart={}\ntheme={}\nlyric_shift_ms={}\nroll_anim={}\nroll_ms={}\nchar_green={}\nmarquee={}\nedge_fade={}\nside_snap={}\nlyric_font={}\nspectrum={}\nwater_spectrum={}\ncollapsed_mode={}\nidle_face={}\ncollapsed_layout={}\nupd_seen_rail={}\nupd_seen_collapsed={}\nupd_seen_row={}\nupd_checked_day={}\nweather_city={}\nweather_city_name={}\nweather_unit={}\nmon_x={}\nmon_y={}\n",
+            "# WinIsle 配置\nposition={}\nx_frac={}\ny_frac={}\nfont={}\ndelay_ms={}\nbg={},{},{}\nalpha={}\nradius={}\nshow_seconds={}\nshow_date={}\nautostart={}\ntheme={}\nlyric_shift_ms={}\nroll_anim={}\nroll_ms={}\nchar_green={}\nmarquee={}\nedge_fade={}\nside_snap={}\nlyric_font={}\nspectrum={}\nwater_spectrum={}\ncollapsed_mode={}\nidle_face={}\ncollapsed_layout={}\nupd_seen_rail={}\nupd_seen_collapsed={}\nupd_seen_row={}\nupd_checked_day={}\nweather_city={}\nweather_city_name={}\nweather_unit={}\nweather_show_temp={}\nweather_show_text={}\nmon_x={}\nmon_y={}\n",
             self.position.as_str(),
             self.x_frac,
             self.y_frac,
@@ -543,6 +559,8 @@ if (cfg.idle_face as usize) >= FACES.len() || FACE_REMOVED[cfg.idle_face as usiz
             self.weather_city,
             self.weather_city_name,
             self.weather_unit,
+            self.weather_show_temp as u8,
+            self.weather_show_text as u8,
             self.mon_x,
             self.mon_y,
         );
@@ -896,6 +914,7 @@ enum Module {
     Music,
     Schedule,
     Todo,
+    Note,
     Reminder,
     Weather,
     Life,
@@ -907,10 +926,11 @@ fn rail_idx(self) -> f32 {
         match self {
             Module::Music => 0.0,
             Module::Todo => 1.0,
-            Module::Reminder => 2.0,
-            Module::Weather => 3.0,
-            Module::Life => 4.0,
-            _ => 3.0,
+            Module::Note => 2.0,
+            Module::Reminder => 3.0,
+            Module::Weather => 4.0,
+            Module::Life => 5.0,
+            _ => 0.0,
         }
     }
 }
@@ -920,6 +940,7 @@ fn rail_idx(self) -> f32 {
 enum DbgView {
     Settings,
     Schedule,
+    Note,
     Todo,
     Reminder,
     Weather,
@@ -1456,6 +1477,8 @@ struct IslandApp {
     active: Module,
    ///
     show_settings: bool,
+    /// 设置页开合平滑动画 0..1（自行积分，保证进出设置都有可见过渡）
+    settings_anim: f32,
     settings_scroll: f32,
     ///  settings_scroll 
     settings_scroll_target: f32,
@@ -1468,8 +1491,8 @@ struct IslandApp {
     ///   / 
     rail_anim_at: Option<std::time::Instant>,
     rail_from: f32,
-    rail_scroll: f32,
     rail_scroll_target: f32,
+    rail_scroll_hold: f64,
     last_active: Module,
     /// None=
     upd_ver: Option<update::Manifest>,
@@ -1506,6 +1529,8 @@ struct IslandApp {
     /// 天气温度文本实测宽度：天气槽宽 = 图标 20 + 间距 6 + 温度文字宽度。
     /// 模块左右各 5px 由外层统一间距提供，避免槽内留白把相邻模块推远。
     w_temp_w: f32,
+    /// 天气文字（晴/多云）实测宽度：仅在收起态开启“显示天气文字”时计入槽宽。
+    w_type_w: f32,
     /// 时间文本实测宽度（含秒/不含秒按实际格式）：时间槽宽只包住文字，避免固定槽宽裁字或留白。
     w_clock_w: f32,
     /// ?0..11.2 
@@ -1633,9 +1658,39 @@ struct IslandApp {
     remind_mlist_mode: bool,
     remind_morph: f32,
     life: crate::life::LifeState,
+    note: crate::note::NoteState,
 }
 
 impl IslandApp {
+    /// 是否处于「需要键盘输入」状态（任一输入框活跃）——统一收口激活判定（坑 B / 坑 G）。
+    fn wants_keyboard_input(&self) -> bool {
+        self.w_city_search
+            || self.todo_editing
+            || self.remind_form.is_some()
+            || (self.active == Module::Note && self.note.wants_keyboard())
+    }
+
+    /// 便签 + 输入激活管线（公共函数，坑 B/G 的落地）：离开复位编辑态、便签输入区悬停软激活、
+    /// 按需真激活并抢焦点。新增输入型模块请复用此管线，勿各自重写。
+    fn sync_note_activation(&mut self, ctx: &egui::Context) {
+        if self.active != Module::Note {
+            // 离开便签：只释放键盘焦点/瞬时输入态，保留“正在编辑的便签”页面，
+            // 切回来时继续停在该页（而不是退回列表）。
+            self.note.leave_module();
+        }
+        if self.active == Module::Note && !self.note.wants_keyboard() {
+            platform::set_activatable_soft(self.hwnd, self.note.hover_keyboard_area);
+        }
+        let want = self.wants_keyboard_input();
+        if want != self.w_activatable_last {
+            self.w_activatable_last = want;
+            platform::set_activatable(self.hwnd, want);
+            if want {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            }
+        }
+    }
+
     fn new(tray: Option<Tray>, open_panel: bool) -> Self {
         let mut cfg = Config::load();
         // 设置页的“开机启动”开关以注册表实际状态为准，避免配置与系统不一致
@@ -1682,6 +1737,7 @@ let (r, cov, settled) = if light {
         let dbg_page = match std::env::var("WINISLE_PAGE").ok().as_deref() {
             Some("settings") => Some(DbgView::Settings),
             Some("schedule") => Some(DbgView::Schedule),
+            Some("note") => Some(DbgView::Note),
             Some("todo") => Some(DbgView::Todo),
             Some("reminder") => Some(DbgView::Reminder),
             Some("weather") => Some(DbgView::Weather),
@@ -1843,6 +1899,7 @@ let (r, cov, settled) = if light {
             ctrl_hit: Vec::new(),
             active: Module::Music,
             show_settings: false,
+            settings_anim: 0.0,
             settings_scroll: 0.0,
             settings_scroll_target: 0.0,
             settings_scroll_vis: 0.0,
@@ -1850,8 +1907,8 @@ let (r, cov, settled) = if light {
             dbg_page,
             rail_anim_at: None,
             rail_from: 0.0,
-            rail_scroll: 0.0,
-            rail_scroll_target: 0.0,
+            rail_scroll_target: std::env::var("WINISLE_RAIL_SCROLL").ok().and_then(|s| s.parse::<f32>().ok()).unwrap_or(0.0),
+            rail_scroll_hold: 0.0,
             last_active: Module::Music,
             upd_ver: None,
             upd_msg: String::new(),
@@ -1874,6 +1931,7 @@ let (r, cov, settled) = if light {
             w_scroll: 0.0,
             w_scroll_target: 0.0,
             w_temp_w: 18.0,
+            w_type_w: 22.0,
             w_clock_w: CW_CLOCK,
             w_scroll_vis: 0.0,
             w_scroll_act: std::time::Instant::now() - std::time::Duration::from_secs(10),
@@ -1891,6 +1949,7 @@ let (r, cov, settled) = if light {
             w_search_last_edit: Instant::now(),
             w_search_last_query: String::new(),
             life: crate::life::LifeState::load(),
+            note: crate::note::NoteState::load(),
             todos,
             todo_next_id,
             todo_done_seq,
@@ -2619,7 +2678,25 @@ fn weather_slot_w(&self) -> f32 {
         if self.w_data.is_none() {
             return CW_WEATHER;
         }
-        20.0 + 6.0 + self.w_temp_w.max(10.0)
+        // 槽宽 = 图标 20 + （显示温度时：间距 6 + 温度实测宽）+ （显示文字时：间距 + 文字实测宽）。
+        // 只包住实际内容，模块左右各 5px 由外层统一提供，遵守收起态 5px 宽度约定。
+        let mut w = 20.0;
+        if self.cfg.weather_show_temp {
+            w += 6.0 + self.w_temp_w.max(10.0);
+        }
+        if self.cfg.weather_show_text {
+            // 首帧尚未实测时先用字符数估算，避免槽宽从默认值跳到真实值。
+            let estimate = self
+                .w_data
+                .as_ref()
+                .map(|d| d.today_type.chars().count() as f32 * 11.0)
+                .unwrap_or(0.0);
+            let type_w = if self.w_type_w > 0.5 { self.w_type_w } else { estimate };
+            if type_w > 0.5 {
+                w += if self.cfg.weather_show_temp { 8.0 } else { 6.0 } + type_w;
+            }
+        }
+        w
     }
 
     ///    /// + idx 
@@ -4399,14 +4476,32 @@ fn draw_collapsed_weather(&mut self, painter: &egui::Painter, x: f32, _x1: f32, 
             None => return,
         };
         let tcol = egui::Color32::from_rgba_unmultiplied(238, 240, 246, a);
+        let dim = egui::Color32::from_rgba_unmultiplied(150, 158, 175, a);
         let bgm = egui::Color32::from_rgb(self.cfg.bg[0], self.cfg.bg[1], self.cfg.bg[2]);
-        let text = format!("{:.0}°", temp);
-        let fid = bold_font(13.5);
-        // 
-let tw = painter.layout_no_wrap(text.clone(), fid.clone(), tcol).size().x;
-        self.w_temp_w = tw;
         draw_weather_icon(painter, sky, egui::pos2(x + 10.0, cy), 20.0, a, t, bgm);
-        painter.text(egui::pos2(x + 26.0, cy - 0.5), egui::Align2::LEFT_CENTER, text, fid, tcol);
+        let mut tx = x + 26.0;
+        if self.cfg.weather_show_temp {
+            let text = format!("{:.0}°", temp);
+            let fid = bold_font(13.5);
+            let tw = painter.layout_no_wrap(text.clone(), fid.clone(), tcol).size().x;
+            self.w_temp_w = tw;
+            painter.text(egui::pos2(tx, cy - 0.5), egui::Align2::LEFT_CENTER, text, fid, tcol);
+            tx += tw;
+        } else {
+            self.w_temp_w = 0.0;
+        }
+        if self.cfg.weather_show_text && !self.w_data.as_ref().map(|w| w.today_type.is_empty()).unwrap_or(true) {
+            let type_text = self.w_data.as_ref().map(|w| w.today_type.clone()).unwrap_or_default();
+            let tfid = egui::FontId::proportional(11.0);
+            let typew = painter.layout_no_wrap(type_text.clone(), tfid.clone(), dim).size().x;
+            self.w_type_w = typew;
+            if self.cfg.weather_show_temp {
+                tx += 8.0;
+            }
+            painter.text(egui::pos2(tx, cy), egui::Align2::LEFT_CENTER, type_text, tfid, dim);
+        } else {
+            self.w_type_w = 0.0;
+        }
     }
 
     fn draw_expanded_idle(&self, painter: &egui::Painter, rect: egui::Rect, e: f32) {
@@ -5243,7 +5338,7 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
             self.mark_upd_collapsed_seen();
         }
         let a = (((e - 0.5) * 2.0) * 255.0).clamp(0.0, 255.0) as u8;
-        let rail_w = 66.0f32;
+        let rail_w = 60.0f32;
         let muted = egui::Color32::from_rgba_unmultiplied(150, 158, 175, a);
         let accent = egui::Color32::from_rgba_unmultiplied(52, 211, 153, a);
 
@@ -5270,30 +5365,84 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
         );
 
         let active = self.active.rail_idx() as usize;
-        let items: [(&str, u8); 5] = [("音乐", 0), ("待办", 3), ("提醒", 4), ("天气", 2), ("生活", 5)];
-        let item_h = 43.0f32;
-        let top_y = pill.top() + 34.0; // "让出顶部时间"
-        let set_y = pill.bottom() - item_h;
-        let items_area = egui::Rect::from_min_max(egui::pos2(pill.left(), top_y), egui::pos2(pill.left() + rail_w, set_y - 2.0));
-        let content_h = items.len() as f32 * item_h;
-        let max_scroll = (content_h - items_area.height()).max(0.0);
+        let items: [(&str, u8); 7] = [
+            ("音乐", 0),
+            ("待办", 3),
+            ("便签", 6),
+            ("提醒", 4),
+            ("天气", 2),
+            ("生活", 5),
+            ("设置", 255),
+        ];
+        // 左栏一屏显示 6 个模块；预占位（上下各留一条箭头槽，行高恒定不挤压）+ 自由滚动
+        // （滚轮连续滚、点击箭头滚一项，停手后吸附整行）。
+        let clock_band = 24.0f32;
+        let arrow_h = 12.0f32;
+        let page_t = 0.16f32;
+        let n_items = items.len() as i32;
+        let max_scroll = (n_items - 6).max(0) as f32;
+        let top_y = pill.top() + clock_band + arrow_h;
+        let area_bottom = pill.bottom() - 2.0 - arrow_h;
+        let item_h = ((area_bottom - top_y) / 6.0).max(20.0);
+        let _set_y = pill.bottom() - item_h;
+        let items_area = egui::Rect::from_min_max(
+            egui::pos2(pill.left(), top_y),
+            egui::pos2(pill.left() + rail_w, area_bottom),
+        );
+        // 顶部/底部箭头带（居中，预占位，恒占一条槽）
+        let up_band = egui::Rect::from_min_size(
+            egui::pos2(pill.left() + 9.0, pill.top() + clock_band),
+            egui::vec2(rail_w - 18.0, arrow_h),
+        );
+        let down_band = egui::Rect::from_min_size(
+            egui::pos2(pill.left() + 9.0, pill.bottom() - arrow_h - 1.0),
+            egui::vec2(rail_w - 18.0, arrow_h),
+        );
+        // 连续滚动：滚轮按增量滚动（每格约 0.6 项），可任意停在中间；停手 0.12s 后吸附整行
+        self.rail_scroll_target = self.rail_scroll_target.clamp(0.0, max_scroll);
+        let mut scroll_input = false;
         if ui.rect_contains_pointer(rail) && !modal {
             let sd = ui.input(|i| i.smooth_scroll_delta.y);
             if sd.abs() > 0.1 {
-                self.rail_scroll_target = (self.rail_scroll_target - sd).clamp(0.0, max_scroll);
+                let step = -sd / 120.0 * 2.4;
+                self.rail_scroll_target = (self.rail_scroll_target + step).clamp(0.0, max_scroll);
+                scroll_input = true;
             }
         }
-        self.rail_scroll_target = self.rail_scroll_target.clamp(0.0, max_scroll);
-        self.rail_scroll += (self.rail_scroll_target - self.rail_scroll) * 0.35;
-        if (self.rail_scroll_target - self.rail_scroll).abs() > 0.3 { ui.ctx().request_repaint(); }
-        let rail_scroll = self.rail_scroll;
+        let can_up = self.rail_scroll_target > 0.01;
+        let can_down = self.rail_scroll_target < max_scroll - 0.01;
+        let mut click_dir = 0i32;
+        if can_up {
+            let r = ui.interact(up_band, ui.id().with("rail_up"), egui::Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            draw_rail_chevron(painter, egui::pos2(up_band.center().x, up_band.center().y), true, if r.hovered() { accent } else { muted });
+            if r.clicked() { click_dir = -1; }
+        }
+        if can_down {
+            let r = ui.interact(down_band, ui.id().with("rail_down"), egui::Sense::click())
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            draw_rail_chevron(painter, egui::pos2(down_band.center().x, down_band.center().y - 1.5), false, if r.hovered() { accent } else { muted });
+            if r.clicked() { click_dir = 1; }
+        }
+        if click_dir != 0 {
+            let cur = self.rail_scroll_target.round();
+            self.rail_scroll_target = (cur + click_dir as f32).clamp(0.0, max_scroll);
+            scroll_input = true;
+        }
+        let now_t = ui.ctx().input(|i| i.time);
+        if scroll_input { self.rail_scroll_hold = now_t; }
+        if now_t - self.rail_scroll_hold > 0.12 {
+            self.rail_scroll_target = self.rail_scroll_target.round().clamp(0.0, max_scroll);
+        }
+        // 滚动位置随时间平滑动画（单位：像素）
+        let rail_scroll = ui.ctx().animate_value_with_time(egui::Id::new("rail_scroll_anim"), self.rail_scroll_target * item_h, page_t);
 
         // 
         {
             let stt = platform::local_time();
             let mut ts = format!("{:02}:{:02}", stt.wHour, stt.wMinute);
             let fsz = if self.cfg.show_seconds { ts = format!("{}:{:02}", ts, stt.wSecond); 13.0 } else { 17.0 };
-            painter.text(egui::pos2(pill.left() + rail_w * 0.5, pill.top() + 17.5), egui::Align2::CENTER_CENTER, &ts, bold_font(fsz), egui::Color32::from_rgba_unmultiplied(233, 236, 242, a));
+            painter.text(egui::pos2(pill.left() + rail_w * 0.5, pill.top() + 14.0), egui::Align2::CENTER_CENTER, &ts, bold_font(fsz), egui::Color32::from_rgba_unmultiplied(233, 236, 242, a));
         }
 
         // 
@@ -5302,42 +5451,65 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
             self.rail_anim_at = Some(std::time::Instant::now());
             self.last_active = self.active;
         }
-        let mut rail_anim_done = false;
-        let shown_idx = if let Some(at) = self.rail_anim_at {
-            let p = (at.elapsed().as_secs_f32() / 0.26).clamp(0.0, 1.0);
-            let ease = 1.0 - (1.0 - p).powi(3);
-            if p >= 1.0 { rail_anim_done = true; }
-            self.rail_from + (active as f32 - self.rail_from) * ease
-        } else { active as f32 };
-
+        // 左栏选中态高亮（含「设置」= 第 6 项）统一走动画：切换模块、进出设置都平滑滑动
         let settings_active = self.show_settings && !(self.w_city_search && self.w_city_search_from_weather);
-        let eff_shown = if settings_active { -2.0 } else { shown_idx };
+        let settings_idx = (items.len() - 1) as f32;
+        let sel_target = if settings_active { settings_idx } else { active as f32 };
+        let sel_f = ui.ctx().animate_value_with_time(egui::Id::new("rail_sel"), sel_target, 0.18);
         // 
-        if !settings_active {
-            let hl_y = top_y + shown_idx * item_h - rail_scroll;
-            let hl_rect = egui::Rect::from_min_size(egui::pos2(pill.left() + 9.0, hl_y), egui::vec2(rail_w - 18.0, item_h - 8.0));
-            painter.rect_filled(hl_rect, 10.0, egui::Color32::from_rgba_unmultiplied(52, 211, 153, (a as f32 * 0.14) as u8));
+        {
+            let hl_y = top_y + sel_f * item_h - rail_scroll;
+            let hl_side = item_h;
+            let hl_rect = egui::Rect::from_min_size(egui::pos2(pill.left() + (rail_w - hl_side) * 0.5, hl_y), egui::vec2(hl_side, hl_side));
+            let hp = painter.with_clip_rect(items_area);
+            hp.rect_filled(hl_rect, 10.0, egui::Color32::from_rgba_unmultiplied(52, 211, 153, (a as f32 * 0.14) as u8));
         }
 
         let mut iy = top_y - rail_scroll;
         let rp = painter.with_clip_rect(items_area);
         for (idx, (label, icon_kind)) in items.iter().enumerate() {
-            let item = egui::Rect::from_min_size(egui::pos2(pill.left() + 9.0, iy), egui::vec2(rail_w - 18.0, item_h - 8.0));
-            let w = (1.0 - (idx as f32 - eff_shown).abs()).clamp(0.0, 1.0);
+            let item = egui::Rect::from_min_size(egui::pos2(pill.left() + (rail_w - item_h) * 0.5, iy), egui::vec2(item_h, item_h));
+            let vis = item.intersect(items_area);
+            if vis.height() < 6.0 {
+                iy += item_h;
+                continue;
+            }
+            let w = (1.0 - (idx as f32 - sel_f).abs()).clamp(0.0, 1.0);
             let icol = lerp_color(muted, accent, w);
             let cx = item.center().x;
             let ccy = item.center().y;
-            draw_nav_icon(&rp, *icon_kind, egui::pos2(cx, ccy - 7.0), 18.0, icol);
+            if *icon_kind == 255 {
+                rp.text(egui::pos2(cx, ccy - 7.0), egui::Align2::CENTER_CENTER, "\u{E713}", icon_font(17.0), icol);
+            } else {
+                draw_nav_icon(&rp, *icon_kind, egui::pos2(cx, ccy - 7.0), 18.0, icol);
+            }
             rp.text(egui::pos2(cx, ccy + 10.5), egui::Align2::CENTER_CENTER, *label, egui::FontId::proportional(10.5), icol);
             // 提醒小红点已按需求移除（左侧 rail「提醒」项不再绘制红点）
-            let resp = ui.interact(item, ui.id().with(("rail", idx)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
-            if resp.clicked() {
+            let resp = ui.interact(vis, ui.id().with(("rail", idx)), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            if resp.clicked() && *icon_kind == 255 {
+                if self.w_city_search {
+                    self.w_city_search = false;
+                    self.w_city_search_from_weather = false;
+                    self.w_search_need_focus = false;
+                    self.w_search_focus_tries = 0;
+                }
+                if !self.show_settings {
+                    self.settings_scroll = 0.0;
+                    self.settings_scroll_target = 0.0;
+                    self.settings_scroll_act = std::time::Instant::now() - std::time::Duration::from_secs(10);
+                    self.show_settings = true;
+                    self.mark_upd_seen_rail();
+                    if self.upd_ver.is_none() && !self.upd_checking {
+                        self.start_update_check(false);
+                    }
+                }
+            } else if resp.clicked() {
                 self.show_settings = false;
                 self.w_city_search = false;
                 self.w_city_search_from_weather = false;
                 self.w_search_need_focus = false;
                 self.w_search_focus_tries = 0;
-                let ni = match idx { 0 => Module::Music, 1 => Module::Todo, 2 => Module::Reminder, 3 => Module::Weather, _ => Module::Life };
+                let ni = match idx { 0 => Module::Music, 1 => Module::Todo, 2 => Module::Note, 3 => Module::Reminder, 4 => Module::Weather, _ => Module::Life };
                 if ni == Module::Reminder {
                     // ?
 self.remind_dot = None;
@@ -5350,13 +5522,18 @@ self.remind_dot = None;
                     self.last_active = ni;
                 }
             }
+            if *icon_kind == 255 && self.show_rail_update() {
+                let bc = egui::pos2(item.right() - 8.0, item.top() + 8.0);
+                painter.circle_filled(bc, 4.8, egui::Color32::from_rgba_unmultiplied(18, 20, 25, a));
+                painter.circle_filled(bc, 3.0, accent);
+            }
             iy += item_h;
         }
-        if rail_anim_done { self.rail_anim_at = None; }
+        // rail_anim_at 在下方 switch_p 计算完成后复位
 
 
-        {
-            let item = egui::Rect::from_min_size(egui::pos2(pill.left() + 9.0, set_y), egui::vec2(rail_w - 18.0, item_h - 8.0));
+        if false {
+            let item = egui::Rect::from_min_size(egui::pos2(pill.left() + 9.0, _set_y), egui::vec2(rail_w - 18.0, item_h - 8.0));
             if settings_active {
                 painter.rect_filled(item, 10.0, egui::Color32::from_rgba_unmultiplied(52, 211, 153, (a as f32 * 0.14) as u8));
             }
@@ -5395,19 +5572,27 @@ if self.show_rail_update() {
 
         // 
         let (switch_p, switch_dir) = if let Some(at) = self.rail_anim_at {
-            let p = (at.elapsed().as_secs_f32() / 0.26).clamp(0.0, 1.0);
+            let p = (at.elapsed().as_secs_f32() / 0.18).clamp(0.0, 1.0);
             let new_idx = self.active.rail_idx();
             (p, (new_idx - self.rail_from).signum())
         } else {
             (1.0f32, 0.0f32)
         };
+        if switch_p >= 1.0 { self.rail_anim_at = None; }
 
 
         let content = egui::Rect::from_min_max(
             egui::pos2(pill.left() + rail_w, pill.top()),
             egui::pos2(pill.right(), pill.bottom()),
         );
-        let svis = ui.ctx().animate_bool_with_time(egui::Id::new("settings_vis"), self.show_settings, 0.22);
+        // 设置页开合用自管平滑动画（≈150ms 收敛），保证进出设置都有可见的淡入/上滑过渡
+        let sdt = ui.input(|i| i.stable_dt).clamp(0.001, 0.05);
+        let starget = if self.show_settings { 1.0f32 } else { 0.0f32 };
+        let sk = 1.0 - (-sdt / 0.06).exp();
+        self.settings_anim += (starget - self.settings_anim) * sk;
+        if (starget - self.settings_anim).abs() < 0.002 { self.settings_anim = starget; }
+        if (starget - self.settings_anim).abs() > 0.0005 { ui.ctx().request_repaint(); }
+        let svis = self.settings_anim;
         let switch_ease = 1.0 - (1.0 - switch_p).powi(3);
         let dx = switch_dir * (1.0 - switch_ease) * 26.0;
         let cslide = egui::Rect::from_min_max(
@@ -5431,6 +5616,7 @@ if self.show_rail_update() {
                     }
                 }
                 Module::Schedule => self.draw_placeholder_page(&cclip, cslide, e, "日程", "日程模块即将上线"),
+                Module::Note => crate::note::draw(ui, painter, cslide, e, &mut self.note, self.cfg.bg, self.cfg.radius),
                 Module::Todo => self.draw_todo_page(ui, &cclip, cslide, e),
                 Module::Life => {
                     if ui.input(|i| i.pointer.primary_pressed()) && ui.rect_contains_pointer(cslide) {
@@ -5442,18 +5628,16 @@ if self.show_rail_update() {
                 Module::Weather => self.draw_weather_page(ui, &cclip, cslide, e),
             }
         }
-        if self.show_settings {
+        if self.show_settings || svis > 0.001 {
             self.draw_settings_page(ui, painter, content, e, svis);
         }
-        // 过渡遮罩：模块切换 & 设置淡出共用一层岛体底色。
-        // 设置页不再在 show_settings=false 后继续绘制，避免其内容以半透明“残留”叠在新模块上。
+        // 过渡遮罩：仅用于模块切换时淡入新页；设置页的开/合（含淡出）由 draw_settings_page 自身背景负责。
         let mut mask_a = 0.0f32;
         if switch_p < 0.999 {
             mask_a = mask_a.max((1.0 - switch_p).powf(1.5));
         }
-        if !self.show_settings && svis > 0.001 {
-            mask_a = mask_a.max(svis);
-        }
+        // 设置页淡出由 draw_settings_page 自身画的背景（alpha×vis）完成，这里不再叠加遮罩，避免双重压暗
+
         if mask_a > 0.001 {
             let ma = (mask_a * self.cfg.alpha as f32) as u8;
             let mask = egui::Color32::from_rgba_unmultiplied(self.cfg.bg[0], self.cfg.bg[1], self.cfg.bg[2], ma);
@@ -8844,8 +9028,9 @@ let tile_h = 60.0f32;
         let view_h = (list_bottom - list_top).max(1.0);
         let face_on = self.face_mode_active();
         let comp_n = self.comp_order().len();
-        let n_headers = 5usize + if face_on { 1 } else { 0 };
-        let n_rows = comp_n + 7;
+        let n_headers = 4usize + if face_on { 1 } else { 0 };
+        // 固定设置行：音乐 3 + 窗口 1 + 通用 2 = 6
+        let n_rows = comp_n + 6;
         let mut total_h = n_headers as f32 * label_h
             + n_headers.saturating_sub(1) as f32 * group_gap
             + n_rows as f32 * row_h
@@ -9130,20 +9315,7 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
         { let trect = tg(y); if let Some(v) = Self::draw_toggle(ui, painter, trect, self.cfg.side_snap, ui.id().with("tg_side_snap"), accent, a, true) { self.cfg.side_snap = v; changed = true; } }
         y += row_h;
 
-        // 
-        y += group_gap;
-        group_header(painter, y, "天气");
-        y += label_h;
-        row_label(painter, y, "温度单位", ink);
-        {
-            let seg = egui::Rect::from_min_max(egui::pos2(right - 104.0, y + 5.0), egui::pos2(right, y + row_h - 5.0));
-            if let Some(v) = Self::draw_segment(ui, painter, seg, &["摄氏", "华氏"], self.cfg.weather_unit as usize, ui.id().with("seg_unit"), accent, a) {
-                self.cfg.weather_unit = v as u8;
-                changed = true;
-            }
-        }
-        y += row_h;
-
+        // 天气不提供设置项：固定为摄氏度，收起态固定展示图标与温度。
         y += group_gap;
         group_header(painter, y, "通用");
         y += label_h;
@@ -9778,14 +9950,8 @@ if let Ok(v) = std::env::var("WINISLE_IDLE_FACE") {
                 platform::set_activatable_soft(self.hwnd, false);
             }
         }
-        let want_activatable = self.w_city_search || self.todo_editing || self.remind_form.is_some();
-        if want_activatable != self.w_activatable_last {
-            self.w_activatable_last = want_activatable;
-            platform::set_activatable(self.hwnd, want_activatable);
-            if want_activatable {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            }
-        }
+        // 便签 + 输入激活管线（公共函数，见 sync_note_activation）
+        self.sync_note_activation(ctx);
         platform::ensure_erase_guard(self.hwnd);
         let _pf_t_win = std::time::Instant::now();
         //          // "double-buffer
@@ -10783,6 +10949,7 @@ if let Some(p) = self.dbg_page {
                 match p {
                     DbgView::Settings => self.show_settings = true,
                     DbgView::Schedule => self.active = Module::Schedule,
+                    DbgView::Note => self.active = Module::Note,
                     DbgView::Todo => self.active = Module::Todo,
                     DbgView::Reminder => self.active = Module::Reminder,
                     DbgView::Weather => self.active = Module::Weather,
@@ -11487,6 +11654,16 @@ fn draw_weather_icon(p: &egui::Painter, sky: crate::weather::Sky, c: egui::Pos2,
     }
 }
 
+/// 左栏翻页箭头：up=true 画「︿」，false 画「﹀」
+fn draw_rail_chevron(p: &egui::Painter, c: egui::Pos2, up: bool, col: egui::Color32) {
+    let s = 4.4f32;
+    let h = 1.9f32;
+    let (y1, y2) = if up { (c.y + h, c.y - h) } else { (c.y - h, c.y + h) };
+    let st = egui::Stroke::new(1.5, col);
+    p.line_segment([egui::pos2(c.x - s, y1), egui::pos2(c.x, y2)], st);
+    p.line_segment([egui::pos2(c.x + s, y1), egui::pos2(c.x, y2)], st);
+}
+
 fn draw_nav_icon(painter: &egui::Painter, kind: u8, c: egui::Pos2, size: f32, color: egui::Color32) {
     match kind {
         // 
@@ -11540,6 +11717,32 @@ fn draw_nav_icon(painter: &egui::Painter, kind: u8, c: egui::Pos2, size: f32, co
             }
             pts.push(pts[0]);
             painter.add(egui::Shape::line(pts, egui::Stroke::new(1.6 * f, color)));
+        }
+        6 => {
+            // 便签：纸片 + 折角 + 横线
+            let f = size / 24.0;
+            let x0 = c.x - 7.5 * f;
+            let x1 = c.x + 7.5 * f;
+            let y0 = c.y - 8.5 * f;
+            let y1 = c.y + 8.5 * f;
+            let fold = 4.5 * f;
+            painter.add(egui::Shape::line(
+                vec![
+                    egui::pos2(x0, y0),
+                    egui::pos2(x1 - fold, y0),
+                    egui::pos2(x1, y0 + fold),
+                    egui::pos2(x1, y1),
+                    egui::pos2(x0, y1),
+                    egui::pos2(x0, y0),
+                ],
+                egui::Stroke::new(1.6 * f, color),
+            ));
+            painter.line_segment([egui::pos2(x1 - fold, y0), egui::pos2(x1 - fold, y0 + fold)], egui::Stroke::new(1.3 * f, color));
+            painter.line_segment([egui::pos2(x1 - fold, y0 + fold), egui::pos2(x1, y0 + fold)], egui::Stroke::new(1.3 * f, color));
+            for k in 0..3 {
+                let ly = c.y - 2.6 * f + k as f32 * 3.6 * f;
+                painter.line_segment([egui::pos2(x0 + 3.0 * f, ly), egui::pos2(x1 - 3.0 * f, ly)], egui::Stroke::new(1.1 * f, color));
+            }
         }
         _ => { painter.text(c, egui::Align2::CENTER_CENTER, "\u{E753}", icon_font(size * 1.15), color); } // Cloud
     }

@@ -2,7 +2,7 @@ param([switch]$Deploy = $true)
 $ErrorActionPreference = 'Continue'
 . 'D:\LingDao\scripts\genv.ps1'
 Set-Location 'D:\LingDao'
-$out = & cargo build --release 2>&1 | Out-String
+$out = & cargo build --release --features dev-icon 2>&1 | Out-String
 $code = $LASTEXITCODE
 ($out -split "`n" | Select-String -Pattern 'error\[|error:|Finished') | ForEach-Object { $_.Line }
 if ($code -ne 0) { throw "cargo build failed: $code" }

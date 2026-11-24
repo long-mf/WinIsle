@@ -45,3 +45,7 @@
 # local-only assistant docs
 /AGENTS.md
 /HANDOFF.md
+
+# assistant 临时/备份产物
+/WinIsle.exe.bak-*
+/WinIsle.prev_dur.exe

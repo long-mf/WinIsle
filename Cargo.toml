@@ -7,14 +7,21 @@ license = "MIT"
 repository = "https://github.com/long-mf/WinIsle"
 authors = ["WinIsle contributors"]
 
+[features]
+# 本地开发版专用：托盘图标使用带 DEV 角标的开发版图标。
+# build.ps1 显式开启；打包/CI/正式发布不开启，保持官方图标。
+dev-icon = []
+
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts"] }
 raw-window-handle = "0.6"
 tray-icon = "0.19"
-windows = { version = "0.58", features = ["Foundation", "Foundation_Collections", "Media_Control", "Storage_Streams", "Devices_Geolocation", "Win32_Foundation", "Win32_System_Com", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Diagnostics_Debug", "Win32_System_Memory", "Win32_System_Threading", "Win32_System_Time", "Win32_UI_WindowsAndMessaging", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints"] }
+windows = { version = "0.58", features = ["Foundation", "Foundation_Collections", "Media_Control", "Storage_Streams", "Devices_Geolocation", "Win32_Foundation", "Win32_System_Com", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Diagnostics_Debug", "Win32_System_Memory", "Win32_System_Threading", "Win32_System_Time", "Win32_UI_WindowsAndMessaging", "Win32_UI_Controls_Dialogs", "Win32_Media_Audio", "Win32_Media_Audio_Endpoints"] }
 ureq = { version = "2.10", default-features = false, features = ["tls", "native-certs", "json", "gzip"] }
 serde_json = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+# 便签贴图：读取剪贴板图片（Ctrl+V 粘贴截图）
+arboard = { version = "3.7", default-features = false, features = ["image-data"] }
 
 # 发布包体积优化：去掉符号表、开 LTO、单 codegen unit。
 # 仅影响 release 构建；不影响调试构建与运行逻辑。

@@ -195,6 +195,20 @@ const MA_ACTIVATE: isize = 1;
 const HTCLIENT: isize = 1;
 const HTTRANSPARENT: isize = -1;
 const VK_LBUTTON: i32 = 0x01;
+const WM_MOUSEMOVE: u32 = 0x0200;
+const WM_LBUTTONDOWN: u32 = 0x0201;
+const WM_LBUTTONUP: u32 = 0x0202;
+const WM_CAPTURECHANGED: u32 = 0x0215;
+const WM_CANCELMODE: u32 = 0x001F;
+const MK_LBUTTON: usize = 0x0001;
+const WM_KEYDOWN: u32 = 0x0100;
+const VK_CONTROL: i32 = 0x11;
+const VK_V: i32 = 0x56;
+
+/// 用户按下了 Ctrl+V 的意图标记。
+/// 原因：egui-winit 会把 Ctrl+V 直接翻译成「粘贴文本」并 return（不再派发 Key 事件），
+/// 当剪贴板是图片时它读不到文本、于是一个事件都不发——所以必须在窗口过程里自行捕获 Ctrl+V。
+static PASTE_IMG_REQ: AtomicBool = AtomicBool::new(false);
 
 // 动态整窗鼠标穿透：WS_EX_TRANSPARENT 使窗口对鼠标完全透明（点击落到下方窗口，跨进程有效）。
 // 通过定时器按光标是否落在岛体/面板矩形内来开关，从而“岛体可交互、透明边距可穿透”。
@@ -211,6 +225,11 @@ static CLICK_POLL_STARTED: AtomicI32 = AtomicI32::new(0);
 
 /// 是否正在拖动岛体（由 UI 线程每帧写入）。拖动期间需保持窗口可交互，即使光标离开岛体。
 static DRAGGING: AtomicI32 = AtomicI32::new(0);
+
+/// 左键按下状态（由窗口过程根据 WM_LBUTTONDOWN/UP/MOUSEMOVE 维护）。
+/// 不能只靠 GetAsyncKeyState：当任务管理器等管理员权限窗口在前台时，
+/// UIPI 会让中完整性进程的 GetAsyncKeyState 一直返回 0，导致拖动完全失效。
+static LBUTTON_MSG: AtomicI32 = AtomicI32::new(0);
 
 /// 设置“正在拖动”状态（由主线程调用）。
 pub fn set_dragging(on: bool) {
@@ -274,6 +293,15 @@ unsafe extern "system" fn erase_wndproc(hwnd: HWND, msg: u32, wparam: usize, lpa
         }
         return HTTRANSPARENT;
     }
+    // 维护左键“按下”状态：只相信窗口实际收到的鼠标消息，不依赖 GetAsyncKeyState。
+    // 这样即使前台是管理员权限的任务管理器（UIPI 屏蔽了全局按键查询），拖动仍可用。
+    if msg == WM_LBUTTONDOWN {
+        LBUTTON_MSG.store(1, Ordering::SeqCst);
+    } else if msg == WM_LBUTTONUP || msg == WM_CAPTURECHANGED || msg == WM_CANCELMODE {
+        LBUTTON_MSG.store(0, Ordering::SeqCst);
+    } else if msg == WM_MOUSEMOVE {
+        LBUTTON_MSG.store(if (wparam & MK_LBUTTON) != 0 { 1 } else { 0 }, Ordering::SeqCst);
+    }
     // 点击时不要让窗口被激活——否则 Windows 会为"活动窗口"画一圈高亮边框（偶发白边的来源）。
     // 例外：城市搜索页需要键盘输入，此时允许激活，键盘事件才能进入 egui。
     if msg == WM_MOUSEACTIVATE {
@@ -292,7 +320,44 @@ unsafe extern "system" fn erase_wndproc(hwnd: HWND, msg: u32, wparam: usize, lpa
     if msg == WM_ERASEBKGND {
         return 1;
     }
+    // 捕获 Ctrl+V（egui-winit 会吞掉该快捷键，图片剪贴板不会产生任何 egui 事件）。
+    // 只置位标记、不消费消息，让 winit 照常处理——文本剪贴板仍走它自己的粘贴逻辑。
+    if msg == WM_KEYDOWN && wparam as i32 == VK_V {
+        unsafe {
+            if (GetAsyncKeyState(VK_CONTROL) as u16 & 0x8000) != 0 {
+                PASTE_IMG_REQ.store(true, Ordering::SeqCst);
+            }
+        }
+    }
     CallWindowProcW(ORIG_ERASE, hwnd, msg, wparam, lparam)
+}
+
+/// 取走一次「Ctrl+V 贴图」意图（读后清零）。
+pub fn take_paste_image_req() -> bool {
+    PASTE_IMG_REQ.swap(false, Ordering::SeqCst)
+}
+
+/// 清空「Ctrl+V 贴图」意图（编辑器未打开时调用，避免把旧意图带进下一次编辑）。
+pub fn clear_paste_image_req() {
+    PASTE_IMG_REQ.store(false, Ordering::SeqCst);
+}
+
+/// 仅自测用：模拟一次 Ctrl+V 意图（不产生真实按键，供离屏验证 take 通路）。
+pub fn request_paste_for_test() {
+    PASTE_IMG_REQ.store(true, Ordering::SeqCst);
+}
+
+static PREV_V_DOWN: AtomicI32 = AtomicI32::new(0);
+
+/// 轮询 Ctrl+V 的「按下边沿」（兜底：不依赖窗口过程是否收到 WM_KEYDOWN）。
+/// 与 lbutton_down 一样只读按键状态，不产生任何输入事件、不抢焦点。
+pub fn ctrl_v_pressed() -> bool {
+    unsafe {
+        let v = (GetAsyncKeyState(VK_V) as u16 & 0x8000) != 0;
+        let ctrl = (GetAsyncKeyState(VK_CONTROL) as u16 & 0x8000) != 0;
+        let prev = PREV_V_DOWN.swap(if v { 1 } else { 0 }, Ordering::SeqCst) != 0;
+        ctrl && v && !prev
+    }
 }
 
 
@@ -448,6 +513,13 @@ pub fn lbutton_down() -> bool {
             return s.trim() == "1";
         }
     }
+    // 优先用窗口过程收到的真实鼠标消息。
+    // 当前台是管理员权限窗口（如任务管理器）时，UIPI 会让本进程的 GetAsyncKeyState 恒为 0，
+    // 只靠它会导致鼠标拖动彻底失效；窗口消息不受此影响。
+    if LBUTTON_MSG.load(Ordering::SeqCst) != 0 {
+        return true;
+    }
+    // 兜底：没有收到消息时（例如拖动开始前光标尚在窗口外）仍可用全局状态判断。
     unsafe { (GetAsyncKeyState(VK_LBUTTON) as u16 & 0x8000) != 0 }
 }
 

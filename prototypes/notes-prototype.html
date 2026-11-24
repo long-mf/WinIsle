@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>WinIsle · 便签模块原型 v1</title>
+<style>
+  :root{
+    --ink:#1b1a16; --line:#e7e0d2; --paper:#f1ece1; --card:#fffdf7;
+    --mint:#0f8378; --mint2:#34d399;
+    /* app tokens */
+    --t-ink:#E9ECF2; --t-muted:#969EAF; --t-muted2:#6B7180; --t-accent:#34D399;
+    --t-coral:#F2705C; --t-amber:#E6B23C; --t-line:rgba(255,255,255,.07);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1200px;margin:0 auto;padding:52px 40px 66px}
+
+  .eyebrow{font-size:12px;letter-spacing:.2em;font-weight:800;color:var(--mint);text-transform:uppercase;display:flex;align-items:center;gap:9px}
+  .eyebrow::before{content:"";width:8px;height:8px;border-radius:50%;background:#12b39b;box-shadow:0 0 0 4px rgba(18,179,155,.16)}
+  h1{font-size:28px;margin:14px 0 8px;font-weight:800;letter-spacing:-.01em}
+  h1 em{font-style:normal;color:var(--mint)}
+  .sub{font-size:14px;color:#4b4a44;line-height:1.75;margin:0;max-width:860px}
+  .sub b{color:#1b1a16}
+
+  .sec{margin-top:40px}
+  .sechead{display:flex;align-items:baseline;gap:12px;margin:0 0 16px}
+  .sechead .n{font-size:12px;font-weight:800;color:#fff;background:var(--mint);width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;transform:translateY(2px)}
+  .sechead .t{font-size:16px;font-weight:800}
+  .sechead .d{font-size:12.5px;color:#8a8577}
+
+  /* ---------- 岛 ---------- */
+  .stage{display:flex;justify-content:center}
+  .island{
+    position:relative; width:520px; height:300px; border-radius:16px;
+    background:linear-gradient(180deg,#21232c 0%,#1a1b21 52%,#16171c 100%);
+    box-shadow:0 30px 60px -26px rgba(10,26,22,.6), 0 1px 0 rgba(255,255,255,.05) inset, 0 0 0 1px rgba(255,255,255,.055);
+    overflow:hidden; color:var(--t-ink);
+    font-variant-numeric:tabular-nums;
+  }
+  /* 左栏（6 项紧凑几何：item 35 + gap 4） */
+  .rail{position:absolute;left:0;top:0;bottom:0;width:66px;background:#15161b;
+    border-radius:16px 0 0 16px;box-shadow:1px 0 0 rgba(255,255,255,.045) inset;z-index:3}
+  .rail .time{position:absolute;top:7px;left:0;right:0;text-align:center;font-size:16.5px;font-weight:700;color:var(--t-ink);letter-spacing:.01em}
+  .nav{position:absolute;top:29px;left:9px;right:9px;display:flex;flex-direction:column;gap:4px}
+  .nav .item{height:35px;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:2px;color:var(--t-muted);transition:background .16s,color .16s}
+  .nav .item svg{display:block}
+  .nav .item .lab{font-size:10px;font-weight:600;line-height:1}
+  .nav .item.on{background:rgba(52,211,153,.14);color:var(--t-accent)}
+  .rail .set{position:absolute;bottom:7px;left:9px;right:9px;height:34px;border-radius:10px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--t-muted)}
+  .rail .set .lab{font-size:10px;font-weight:600;line-height:1}
+
+  /* 内容区 */
+  .content{position:absolute;left:66px;top:0;right:0;bottom:0;padding:16px 16px 14px;display:flex;flex-direction:column}
+  .hd{display:flex;align-items:center;justify-content:space-between;height:26px;flex:0 0 auto}
+  .hd .title{font-size:17px;font-weight:800;letter-spacing:.01em}
+  .hd .right{display:flex;align-items:center;gap:8px}
+  .hd .pillnum{font-size:11.5px;font-weight:700;color:var(--t-muted);background:rgba(255,255,255,.06);border-radius:999px;padding:3px 10px;line-height:1.2}
+
+  /* 工具栏：全部 chip + 5 色点 + 搜索 */
+  .toolbar{display:flex;align-items:center;gap:9px;margin-top:8px;flex:0 0 auto;height:24px}
+  .chip{display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:var(--t-muted2);padding:4px 10px;border-radius:999px;line-height:1;cursor:pointer;transition:color .16s,background .16s}
+  .chip.on{color:var(--t-accent);background:rgba(52,211,153,.14);box-shadow:0 0 0 1px rgba(52,211,153,.26) inset}
+  .dots{display:flex;align-items:center;gap:8px}
+  .cdot{width:12px;height:12px;border-radius:50%;background:var(--dc);opacity:.75;cursor:pointer;transition:transform .16s,opacity .16s;flex:0 0 auto}
+  .cdot:hover{transform:scale(1.14);opacity:1}
+  .cdot.on{opacity:1;box-shadow:0 0 0 2px #1a1b21,0 0 0 3.4px var(--dc)}
+  .toolbar .spacer{flex:1 1 auto}
+  .searchbtn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:8px;color:var(--t-muted);background:rgba(255,255,255,.04);box-shadow:0 0 0 1px rgba(255,255,255,.06) inset;cursor:pointer;transition:color .16s,background .16s}
+  .searchbtn:hover{color:var(--t-accent);background:rgba(52,211,153,.12)}
+
+  /* 便签墙 */
+  .wall{flex:1 1 auto;margin-top:9px;min-height:0;overflow:hidden;position:relative;
+    display:grid;grid-template-columns:1fr 1fr;gap:10px;align-content:start}
+  .note{border-radius:11px;padding:9px 11px 8px;height:76px;display:flex;flex-direction:column;
+    cursor:pointer;transition:transform .18s ease, box-shadow .18s ease;
+    animation:noteIn .28s ease both}
+  .note:hover{transform:translateY(-2px)}
+  .note .ntext{flex:1 1 auto;min-height:0;font-size:11.5px;font-weight:600;line-height:1.42;color:var(--t-ink);
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .note .nmeta{flex:0 0 auto;display:flex;align-items:center;gap:5px;margin-top:5px;height:13px}
+  .note .ndot{width:5px;height:5px;border-radius:50%;flex:0 0 auto}
+  .note .ntime{font-size:9.5px;color:var(--t-muted2);font-weight:600}
+  .note .npin{margin-left:auto;display:flex;color:var(--t-muted);opacity:.9}
+  .note.adding{border:1.5px dashed rgba(255,255,255,.16);background:transparent!important;box-shadow:none!important;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;color:var(--t-muted2)}
+  .note.adding .pluswrap{display:flex}
+  .note.adding .at{font-size:10.5px;font-weight:600}
+  @keyframes noteIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .wall::after{content:"";position:absolute;left:0;right:0;bottom:0;height:20px;
+    background:linear-gradient(180deg,rgba(24,25,31,0),rgba(24,25,31,.85));pointer-events:none}
+  .empty-wall{grid-column:1 / -1;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+    border:1.5px dashed rgba(255,255,255,.14);border-radius:13px;color:var(--t-muted2)}
+  .empty-wall .et{font-size:12px;font-weight:700;color:var(--t-muted)}
+  .empty-wall .es{font-size:10.5px;color:var(--t-muted2)}
+
+  /* 贴图便签：左图右文（保持 76 高，与文字便签同栅格） */
+  .note.has-img{flex-direction:row;align-items:stretch;gap:9px;padding:8px 10px 8px 8px}
+  .note.has-img .thumbwrap{position:relative;flex:0 0 auto;width:56px;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.09) inset}
+  .note.has-img .col{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+  .note.has-img .ntext{font-size:11px;-webkit-line-clamp:2}
+  .note .tbglyph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.5)}
+  .note .tb{position:absolute;right:3px;bottom:3px;font-size:8.5px;font-weight:800;color:#fff;background:rgba(9,11,15,.66);border-radius:5px;padding:1px 4px;line-height:1.35}
+  /* 编辑器贴图条 */
+  .imgs{display:flex;gap:8px;align-items:center;flex:0 0 auto;height:52px;margin-top:1px}
+  .ithumb{position:relative;width:50px;height:50px;border-radius:9px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.1) inset}
+  .ithumb .x{position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:rgba(9,11,15,.72);color:#dfe4ee;display:flex;align-items:center;justify-content:center;font-size:9px;line-height:1}
+  .iadd{width:50px;height:50px;border-radius:9px;border:1.4px dashed rgba(255,255,255,.22);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--t-muted2);font-size:8.5px;font-weight:600}
+  .pastehint{margin-left:3px;font-size:9.5px;color:var(--t-muted2);opacity:.82;line-height:1.5}
+  .pastehint b{color:var(--t-muted);font-weight:700}
+
+  /* 图片放大查看：岛内灯箱（遮罩跟随 16px 圆角） */
+  .lightbox{position:absolute;inset:0;border-radius:16px;z-index:6;
+    background:linear-gradient(180deg,rgba(9,11,15,.80),rgba(9,11,15,.91));
+    display:flex;flex-direction:column;padding:10px 12px 9px;animation:lbIn .2s ease both}
+  @keyframes lbIn{from{opacity:0}to{opacity:1}}
+  .lb-top{display:flex;align-items:center;height:22px;flex:0 0 auto}
+  .lb-idx{font-size:10.5px;font-weight:700;color:var(--t-muted)}
+  .lb-acts{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .lb-btn{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:var(--t-ink);
+    background:rgba(255,255,255,.08);box-shadow:0 0 0 1px rgba(255,255,255,.12) inset;border-radius:999px;padding:4px 9px;line-height:1}
+  .lb-x{width:22px;height:22px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--t-muted);background:rgba(255,255,255,.06);box-shadow:0 0 0 1px rgba(255,255,255,.07) inset}
+  .lb-stage{flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:6px}
+  .lb-img{flex:1 1 auto;height:100%;border-radius:11px;overflow:hidden;position:relative;
+    box-shadow:0 0 0 1px rgba(255,255,255,.1) inset,0 16px 34px -16px rgba(0,0,0,.75)}
+  .lb-img .ph2{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.5)}
+  .lb-tag{position:absolute;bottom:8px;left:10px;font-size:9px;color:rgba(255,255,255,.62);letter-spacing:.02em}
+  .lb-nav{flex:0 0 auto;width:24px;height:24px;border-radius:50%;background:rgba(10,12,16,.55);color:#dfe4ee;
+    display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px rgba(255,255,255,.1) inset}
+  .lb-cap{flex:0 0 auto;text-align:center;font-size:10.5px;color:var(--t-muted);margin-top:6px;line-height:1.3}
+  .lb-dots{flex:0 0 auto;display:flex;gap:5px;justify-content:center;margin-top:5px}
+  .lb-dots i{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.24)}
+  .lb-dots i.on{background:var(--t-accent)}
+
+  /* 底部快速记录 */
+  .addrow{margin-top:8px;flex:0 0 auto;height:30px;border-radius:9px;background:rgba(52,211,153,.08);
+    box-shadow:0 0 0 1px rgba(52,211,153,.16) inset;display:flex;align-items:center;gap:8px;padding:0 11px;color:var(--t-muted2);cursor:text}
+  .addrow .ph{font-size:11.5px;font-weight:500}
+  .addrow .hint{margin-left:auto;font-size:9.5px;color:var(--t-muted2);opacity:.75}
+
+  /* 编辑器（表单态） */
+  .island.form{height:330px}
+  .island.form.tall{height:372px}
+  .edwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;margin-top:11px;gap:11px}
+  .prow{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+  .plab{font-size:10px;font-weight:700;color:var(--t-muted2);letter-spacing:.03em}
+  .palette{display:flex;align-items:center;gap:10px;margin-left:2px}
+  .pdot{width:17px;height:17px;border-radius:50%;background:var(--dc);opacity:.85;cursor:pointer;transition:transform .15s,opacity .15s}
+  .pdot:hover{transform:scale(1.12);opacity:1}
+  .pdot.on{opacity:1;box-shadow:0 0 0 2px #1a1b21,0 0 0 3.6px var(--dc)}
+  .ta{flex:1 1 auto;min-height:0;border-radius:11px;box-shadow:0 0 0 1px rgba(255,255,255,.14) inset;
+    padding:11px 13px;font-size:12.5px;line-height:1.62;color:var(--t-ink);overflow:hidden;position:relative}
+  .ta .ph{color:var(--t-muted2);font-weight:500}
+  .ta .caret{display:inline-block;width:1.5px;height:15px;background:#E9ECF2;vertical-align:-3px;margin-left:1px;animation:blink 1.1s steps(1) infinite}
+  @keyframes blink{0%,50%{opacity:1}50.01%,100%{opacity:0}}
+  .efoot{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+  .pok{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--t-accent);
+    background:rgba(52,211,153,.12);box-shadow:0 0 0 1px rgba(52,211,153,.22) inset;border-radius:999px;padding:4px 10px;line-height:1}
+  .pok svg{display:block}
+  .charcount{margin-left:auto;font-size:10px;color:var(--t-muted2);font-weight:600}
+  .btnrow{display:flex;gap:10px;margin-top:13px;flex:0 0 auto}
+  .btn{flex:1 1 auto;height:35px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;cursor:pointer;transition:.15s}
+  .btn.ghost{background:rgba(255,255,255,.05);color:var(--t-muted);box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
+  .btn.primary{background:rgba(52,211,153,.16);color:var(--t-accent);box-shadow:0 0 0 1px rgba(52,211,153,.28) inset}
+
+  /* 独立置顶窗口 · 图片查看器（脱离岛体，浮在桌面上） */
+  .oswin{position:relative;width:780px;max-width:100%;margin:0 auto;border-radius:14px;
+    background:linear-gradient(180deg,#21232c 0%,#191a20 60%,#16171c 100%);color:var(--t-ink);
+    box-shadow:0 44px 90px -34px rgba(10,26,22,.7), 0 0 0 1px rgba(255,255,255,.08), 0 1px 0 rgba(255,255,255,.05) inset;
+    overflow:hidden;font-variant-numeric:tabular-nums}
+  .oswin::after{content:"";position:absolute;right:4px;bottom:4px;width:15px;height:15px;pointer-events:none;
+    border-right:2px solid rgba(255,255,255,.22);border-bottom:2px solid rgba(255,255,255,.22);border-radius:0 0 5px 0}
+  .wbar{display:flex;align-items:center;height:46px;padding:0 14px;gap:9px;background:rgba(255,255,255,.03);box-shadow:0 1px 0 rgba(255,255,255,.06) inset}
+  .wicon{width:27px;height:27px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:rgba(52,211,153,.14);color:var(--t-accent)}
+  .wtitle{font-size:13px;font-weight:800}
+  .wsub{font-size:11px;color:var(--t-muted2)}
+  .wspacer{flex:1 1 auto}
+  .wtoggle{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--t-accent);background:rgba(52,211,153,.12);box-shadow:0 0 0 1px rgba(52,211,153,.24) inset;border-radius:999px;padding:5px 10px;line-height:1}
+  .wbtn{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;color:var(--t-muted);background:rgba(255,255,255,.05);box-shadow:0 0 0 1px rgba(255,255,255,.07) inset}
+  .wbtn.x{color:#e7b0a6}
+  .wtool{display:flex;align-items:center;gap:8px;height:42px;padding:0 14px}
+  .zoomgrp{display:inline-flex;align-items:center;gap:2px;background:rgba(255,255,255,.05);border-radius:9px;box-shadow:0 0 0 1px rgba(255,255,255,.07) inset;padding:3px}
+  .zoomgrp .zb{width:26px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--t-muted)}
+  .zoomgrp .zval{font-size:11px;font-weight:700;color:var(--t-ink);padding:0 6px;min-width:46px;text-align:center}
+  .wchip{font-size:11px;font-weight:700;color:var(--t-muted);background:rgba(255,255,255,.05);border-radius:8px;padding:6px 10px;line-height:1;box-shadow:0 0 0 1px rgba(255,255,255,.06) inset}
+  .wstage{position:relative;height:392px;margin:0 14px;border-radius:11px;overflow:hidden;background:#0d0f13;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
+  .wstage .bigimg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .wstage .panhint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;color:rgba(255,255,255,.72);background:rgba(9,11,15,.6);border-radius:999px;padding:5px 12px}
+  .wfilm{display:flex;gap:8px;align-items:center;padding:12px 14px 14px}
+  .wfilm .fth{width:58px;height:44px;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,255,255,.09) inset;flex:0 0 auto}
+  .wfilm .fth.on{box-shadow:0 0 0 2px var(--t-accent)}
+
+  /* 卡 */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:22px;
+    box-shadow:0 20px 40px -34px rgba(40,35,20,.55)}
+  .cap{display:flex;align-items:center;gap:9px;margin:0 0 14px}
+  .cap .k{font-size:11px;font-weight:800;color:var(--mint);background:rgba(18,179,155,.12);border:1px solid rgba(18,179,155,.22);padding:3px 9px;border-radius:999px;letter-spacing:.02em}
+  .cap .nm{font-size:13px;font-weight:800}
+  .cap .ds{font-size:11.5px;color:#8a8577;margin-left:auto}
+
+  .variants{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .miniframe{overflow:hidden;margin:0 auto;display:block}
+  .scaled{transform-origin:top left;transition:opacity .18s ease}
+
+  .legend{display:flex;gap:18px;align-items:center;justify-content:center;margin-top:16px;flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:#6b6656;font-weight:600}
+  .legend i{width:12px;height:12px;border-radius:50%;display:inline-block}
+
+  .notes{display:grid;grid-template-columns:1fr 1fr;gap:14px 40px;margin-top:4px}
+  .note-i{display:flex;gap:12px;align-items:flex-start}
+  .note-i .b{flex:0 0 auto;width:20px;height:20px;border-radius:6px;background:rgba(18,179,155,.12);color:var(--mint);display:flex;align-items:center;justify-content:center;margin-top:1px;font-size:11px;font-weight:800}
+  .note-i .tx{font-size:12.5px;line-height:1.6;color:#4b4a44}
+  .note-i .tx b{color:#1b1a16;display:block;font-size:13px;margin-bottom:1px}
+  .note-i .tx b span{font-weight:600;color:#8a8577;font-size:11.5px;margin-left:6px}
+  .foot{margin-top:34px;text-align:center;font-size:11.5px;color:#a19c8e}
+  code.k{font-family:"Cascadia Code","Consolas",monospace;font-size:11.5px;background:#e9e2d2;color:#0f6b62;padding:1px 5px;border-radius:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">WinIsle · 便签模块原型 v1</div>
+  <h1>给每个<em>一闪而过</em>，一张不会丢的便签</h1>
+  <p class="sub">在现有「音乐 / 待办 / 提醒 / 天气 / 生活」之外，新增第六个模块 <b>便签</b>。它和「待办」不一样：待办是勾掉的任务，便签是<b>随手记下的念头</b>——想法、金句、待查的小事，还能随手<b>贴张图</b>。进页就是一面<b>彩色便签墙</b>，用颜色分类、把重要的<b>置顶</b>、点一下即可编辑。下面为像素级还原的岛内实景与关键状态。</p>
+
+  <!-- ① 主视图 -->
+  <div class="sec">
+    <div class="sechead"><span class="n">1</span><span class="t">主视图 · 便签墙（默认）</span><span class="d">（520×300 逻辑像素，按 2× 渲染；点顶部色点可筛选）</span></div>
+    <div class="stage"><div id="hero"></div></div>
+  </div>
+
+  <!-- ② 关键状态 -->
+  <div class="sec">
+    <div class="sechead"><span class="n">2</span><span class="t">关键状态</span><span class="d">颜色筛选 / 新建便签 / 贴图编辑 / 图片灯箱 / 空状态</span></div>
+    <div class="variants">
+      <div class="card">
+        <div class="cap"><span class="k">状态 A</span><span class="nm">按颜色筛选 · 只看「琥珀」</span><span class="ds">工具栏点色点过滤，颜色即分类</span></div>
+        <div class="miniframe" id="v-filter"></div>
+      </div>
+      <div class="card">
+        <div class="cap"><span class="k">状态 B</span><span class="nm">新建 / 编辑便签</span><span class="ds">自下 12px 滑入 · 5 色选择 · 置顶开关</span></div>
+        <div class="miniframe" id="v-edit"></div>
+      </div>
+      <div class="card" style="grid-column:1 / -1">
+        <div class="cap"><span class="k">状态 C</span><span class="nm">编辑器 · 贴图</span><span class="ds">Ctrl+V 粘贴截图 / 点「添加图片」选文件 / 直接把图片拖进来</span></div>
+        <div class="miniframe" id="v-editimg"></div>
+      </div>
+      <div class="card" style="grid-column:1 / -1">
+        <div class="cap"><span class="k">状态 D</span><span class="nm">图片灯箱 · 岛内快速看</span><span class="ds">点缩略图先弹灯箱瞄一眼 · 要看细节走下面第 3 节的独立窗口</span></div>
+        <div class="miniframe" id="v-viewer"></div>
+      </div>
+      <div class="card" style="grid-column:1 / -1">
+        <div class="cap"><span class="k">状态 E</span><span class="nm">空状态</span><span class="ds">还没有便签时的引导，虚线占位 + 一句提示</span></div>
+        <div class="miniframe" id="v-empty" style="width:520px"></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#34D399"></i>薄荷</span>
+      <span><i style="background:#E6B23C"></i>琥珀</span>
+      <span><i style="background:#F2705C"></i>珊瑚</span>
+      <span><i style="background:#5BB6E6"></i>天蓝</span>
+      <span><i style="background:#B58CE8"></i>丁香</span>
+      <span><i style="background:#969EAF"></i>次要信息</span>
+      <span><i style="background:#6B7180"></i>弱化 / 占位</span>
+      <span><i style="background:linear-gradient(135deg,#33566b,#5f7f72)"></i>图片（占位示意）</span>
+    </div>
+  </div>
+
+  <!-- ③ 图片查看器 · 独立置顶窗口 -->
+  <div class="sec">
+    <div class="sechead"><span class="n">3</span><span class="t">图片查看器 · 独立置顶窗口</span><span class="d">点「在新窗口打开」→ 脱离岛体的置顶窗口，可拉大 / 缩放 / 全屏看细节</span></div>
+    <div class="stage"><div id="winviewer"></div></div>
+  </div>
+
+  <!-- ④ 设计要点 -->
+  <div class="sec">
+    <div class="sechead"><span class="n">4</span><span class="t">设计与交互要点</span><span class="d">落地时逐条实现</span></div>
+    <div class="card">
+      <div class="notes">
+        <div class="note-i"><span class="b">1</span><div class="tx"><b>一面便签墙<span>不是清单</span></b>左栏加第 6 个「便签」图标（插在「待办」之后，把两个随手记录的工具放在一起）；进页是 2 列彩色便签墙，扫一眼就有画面感。</div></div>
+        <div class="note-i"><span class="b">2</span><div class="tx"><b>颜色即分类<span>5 色低饱和</span></b>薄荷 / 琥珀 / 珊瑚 / 天蓝 / 丁香。卡片用同色 9–13% 极淡底 + 同色细描边 + 一枚同色圆点，文字仍用 ink 白，融入深色岛，不用刺眼纯色块。</div></div>
+        <div class="note-i"><span class="b">3</span><div class="tx"><b>置顶优先<span>图钉标记</span></b>置顶便签排在最前、描边加重并带图钉；其余按「最近更新」倒序，最新的想法总在最上面。</div></div>
+        <div class="note-i"><span class="b">4</span><div class="tx"><b>相对时间<span>刚刚 / 2 小时前 / 昨天</span></b>卡片角标显示相对时间，超过 7 天转为「11-18」月-日，读起来不费脑。</div></div>
+        <div class="note-i"><span class="b">5</span><div class="tx"><b>颜色筛选<span>工具栏色点</span></b>一排色点 +「全部」，点选只看该色，便于按用途（灵感 / 待查 / 购物…）快速过滤，再点一次回到全部。</div></div>
+        <div class="note-i"><span class="b">6</span><div class="tx"><b>搜索<span>放大镜</span></b>工具栏右侧放大镜切换为搜索态，按内容实时过滤；无结果显示占位提示，不跳页。</div></div>
+        <div class="note-i"><span class="b">7</span><div class="tx"><b>快速记录<span>回车即存</span></b>底部「＋ 记一笔…」回车即存一张默认色便签，不打断手头的事。输入框 I-Beam 光标、无底色、白色插入符（第 7 条硬约定）。</div></div>
+        <div class="note-i"><span class="b">8</span><div class="tx"><b>便签编辑器<span>滑入全宽</span></b>点卡片自下 12px 滑入编辑态：多行文本域 + 5 色选择 + 置顶开关 + 字数；取消 / 保存，过渡 160–220ms 可打断。</div></div>
+        <div class="note-i"><span class="b">9</span><div class="tx"><b>空状态 &amp; 动效<span>不硬切</span></b>无便签时显示虚线占位 + 引导文案；卡片增删错峰淡入、hover 上浮 2px，全部可打断可逆。</div></div>
+        <div class="note-i"><span class="b">10</span><div class="tx"><b>本地持久化<span>data/notes.json</span></b>字段 id / text / color / pinned / updated，走 <code class="k">crate::paths::file()</code>，与 todo.json 同级、随安装目录迁移。</div></div>
+        <div class="note-i"><span class="b">11</span><div class="tx"><b>落点<span>复用 Schedule 占位</span></b>把隐藏的空占位 <code class="k">Module::Schedule</code> 改造为 <code class="k">Module::Note</code>，替换 draw_placeholder_page 为 draw_note_page；左栏 items 扩到 6 项。</div></div>
+        <div class="note-i"><span class="b">12</span><div class="tx"><b>左栏 6 项几何<span>需再压缩</span></b>item_h 43→35、gap→4、top→30、底部「设置」高 34，6 项 + 设置正好落在 300 高内不重叠；图标 / 文字仍按行中心对齐。</div></div>
+        <div class="note-i"><span class="b">13</span><div class="tx"><b>便签贴图<span>粘贴 / 选文件 / 拖入</span></b>便签可附图片——截图、照片、菜谱、白板都能贴。编辑器内 <code class="k">Ctrl+V</code> 直接粘贴剪贴板图片、点「＋ 图片」选文件、或把图片拖进便签；卡片以「左图右文」缩略呈现，多图显示「＋N」，点开看大图。</div></div>
+        <div class="note-i"><span class="b">14</span><div class="tx"><b>图片存储<span>data/notes_media</span></b>图片落 <code class="k">data\notes_media\&lt;noteId&gt;\&lt;n&gt;.png</code>，notes.json 记 <code class="k">images:[{f,w,h}]</code>；卡片只加载缩略图（最长边≈160）走纹理缓存，避免每帧解码，稳住 60fps。</div></div>
+        <div class="note-i"><span class="b">15</span><div class="tx"><b>依赖与体积<span>image / arboard</span></b>解码用 <code class="k">image</code> crate（png/jpeg/webp），读剪贴板图片用 <code class="k">arboard</code>（egui 的 Paste 事件只给文本）；限制单图尺寸与单便签图片数（≤9）控内存，单 exe 体积约增几百 KB。</div></div>
+        <div class="note-i"><span class="b">16</span><div class="tx"><b>岛内灯箱<span>快速瞄一眼</span></b>点缩略图先弹岛内灯箱：图片按 contain 撑满、暗色遮罩铺满整岛（遮罩跟随 16px 圆角，不外露直角），多图左右切换 + 圆点指示；caption 显示便签文字，点空白 / Esc 关闭，自缩略图缩放淡入 180–220ms。它只负责“瞄一眼”，不承担看细节。</div></div>
+        <div class="note-i"><span class="b">17</span><div class="tx"><b>独立置顶窗口<span>真正放大看清</span></b>「在新窗口打开」→ eframe 独立 Viewport：无边框、可拉大 / 全屏、滚轮缩放、按住拖动平移、双击 1:1、置顶开关（总是在最前），记住上次尺寸与位置；大图按需从原图解码，缩略图仍走缓存，不拖累 60fps。</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">WinIsle · 便签模块原型 v1 · 深色岛体 + 薄荷强调色 · 便签墙 + 颜色筛选 + 置顶 + 贴图 + 独立置顶图片查看器 · 与音乐 / 待办 / 提醒 / 天气 / 生活同一套设计语言</div>
+</div>
+
+<script>
+const C={accent:'#34D399',ink:'#E9ECF2',muted:'#969EAF',muted2:'#6B7180',coral:'#F2705C',amber:'#E6B23C'};
+// 5 种便签色（低饱和，融入深色岛）
+const NC={
+  mint: {r:52, g:211,b:153,name:'薄荷'},
+  amber:{r:230,g:178,b:60, name:'琥珀'},
+  coral:{r:242,g:112,b:92, name:'珊瑚'},
+  sky:  {r:91, g:182,b:230,name:'天蓝'},
+  lilac:{r:181,g:140,b:232,name:'丁香'},
+};
+// 图片占位渐变（原型示意，非真实照片）
+const PHOTOS=[
+  'linear-gradient(135deg,#33566b,#5f7f72 52%,#c8b489)',
+  'linear-gradient(135deg,#513a63,#8a5f7c 50%,#d99c85)',
+  'linear-gradient(135deg,#2c4b56,#4f7a86 55%,#9ec5c0)',
+];
+function photoBg(seed){return PHOTOS[Math.abs(seed)%PHOTOS.length];}
+function photoGlyph(size){const s=size||20;return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="2.4"/><circle cx="8.7" cy="10" r="1.6"/><path d="M5 17l4.4-4.2 3.1 2.8L16.6 11 20 14.2"/></svg>`;}
+
+function svgIcon(kind,size,color){
+  const s=size||18, w=1.7;
+  const o=`width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"`;
+  if(kind==='music') return `<svg ${o}><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>`;
+  if(kind==='todo')  return `<svg ${o}><circle cx="12" cy="12" r="9"/><path d="M8 12.4l2.7 2.7L16.2 9"/></svg>`;
+  if(kind==='note')  return `<svg ${o}><path d="M5 5.6A1.6 1.6 0 0 1 6.6 4h7.9L19 8.5v9.9A1.6 1.6 0 0 1 17.4 20H6.6A1.6 1.6 0 0 1 5 18.4z"/><path d="M14.2 4v4.6h4.6"/><path d="M8.2 13.2h6M8.2 16.2h4.2"/></svg>`;
+  if(kind==='remind')return `<svg ${o}><path d="M6 8.5a6 6 0 0 1 12 0c0 5 2 6.5 2 6.5H4s2-1.5 2-6.5z"/><path d="M9.8 19a2.3 2.3 0 0 0 4.4 0"/></svg>`;
+  if(kind==='weather')return `<svg ${o}><path d="M7.5 18h8.5a3.6 3.6 0 0 0 .3-7.18A5 5 0 0 0 7.3 9.4 4 4 0 0 0 7.5 18z"/></svg>`;
+  if(kind==='life')  return `<svg ${o}><path d="M12 3.4l2.15 5.55L19.8 11l-5.65 2.05L12 18.6l-2.15-5.55L4.2 11l5.65-2.05z"/></svg>`;
+  if(kind==='set')   return `<svg ${o}><circle cx="12" cy="12" r="3.1"/><path d="M12 2.6v2.3M12 19.1v2.3M2.6 12h2.3M19.1 12h2.3M4.9 4.9l1.6 1.6M17.5 17.5l1.6 1.6M19.1 4.9l-1.6 1.6M6.5 17.5l-1.6 1.6"/></svg>`;
+  if(kind==='search')return `<svg ${o}><circle cx="10.5" cy="10.5" r="6.2"/><path d="M15.2 15.2L20 20"/></svg>`;
+  if(kind==='pin')   return `<svg ${o}><path d="M9.1 3.9h5.8M10 3.9l-.7 5.3-2.6 2.5v1.4h10.6v-1.4l-2.6-2.5-.7-5.3"/><path d="M12 13.1v6.6"/></svg>`;
+  if(kind==='back')  return `<svg ${o}><path d="M15 5.5l-6.5 6.5 6.5 6.5"/></svg>`;
+  if(kind==='expand')return `<svg ${o}><path d="M9 4H4v5M15 4h5v5M20 15v5h-5M4 15v5h5"/></svg>`;
+  if(kind==='x')     return `<svg ${o}><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>`;
+  if(kind==='chevL') return `<svg ${o}><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>`;
+  if(kind==='chevR') return `<svg ${o}><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg>`;
+  if(kind==='mini')  return `<svg ${o}><path d="M5 12h14"/></svg>`;
+  if(kind==='minus') return `<svg ${o}><path d="M6 12h12"/></svg>`;
+  if(kind==='plusic')return `<svg ${o}><path d="M12 6v12M6 12h12"/></svg>`;
+  return '';
+}
+function plus(size){return `<svg width="${size}" height="${size}" viewBox="0 0 14 14"><path d="M7 2.6v8.8M2.6 7h8.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>`;}
+
+function navItem(kind,label,on){
+  return `<div class="item ${on?'on':''}">${svgIcon(kind,18,on?C.accent:C.muted)}<span class="lab">${label}</span></div>`;
+}
+function rail(activeKind){
+  const items=[['music','音乐'],['todo','待办'],['note','便签'],['remind','提醒'],['weather','天气'],['life','生活']];
+  return `<div class="rail">
+    <div class="time">16:31</div>
+    <div class="nav">${items.map(([k,l])=>navItem(k,l,activeKind===k)).join('')}</div>
+    <div class="set">${svgIcon('set',18,C.muted)}<span class="lab">设置</span></div>
+  </div>`;
+}
+
+/* 色点（工具栏 / 编辑器） */
+function colorDots(list,active,cls){
+  return list.map(k=>{const c=NC[k];return `<span class="${cls||'cdot'} ${active===k?'on':''}" style="--dc:rgb(${c.r},${c.g},${c.b})"></span>`;}).join('');
+}
+
+/* 一张便签（支持贴图：左图右文） */
+function noteCard(n,i){
+  const c=NC[n.color];
+  const bg=`rgba(${c.r},${c.g},${c.b},${n.pin?0.13:0.09})`;
+  const ring=`rgba(${c.r},${c.g},${c.b},${n.pin?0.30:0.18})`;
+  const pin=n.pin?`<span class="npin">${svgIcon('pin',12,C.muted)}</span>`:'';
+  const meta=`<div class="nmeta"><span class="ndot" style="background:rgb(${c.r},${c.g},${c.b})"></span><span class="ntime">${n.t}</span>${pin}</div>`;
+  if(n.imgs){
+    const extra=n.imgs>1?`<span class="tb">+${n.imgs-1}</span>`:'';
+    return `<div class="note has-img" style="background:${bg};box-shadow:0 0 0 1px ${ring} inset;animation-delay:${i*40}ms">
+      <div class="thumbwrap" style="background:${photoBg(i+n.imgs)}"><span class="tbglyph">${photoGlyph(18)}</span>${extra}</div>
+      <div class="col"><div class="ntext">${n.text}</div>${meta}</div>
+    </div>`;
+  }
+  return `<div class="note" style="background:${bg};box-shadow:0 0 0 1px ${ring} inset;animation-delay:${i*40}ms">
+    <div class="ntext">${n.text}</div>
+    ${meta}
+  </div>`;
+}
+
+/* 便签墙 body */
+function wallBody(notes,filter){
+  let list=notes.slice();
+  if(filter&&filter!=='all') list=list.filter(n=>n.color===filter);
+  list.sort((x,y)=>(y.pin?1:0)-(x.pin?1:0)); // 置顶优先，其余保持倒序
+  if(!list.length){
+    return `<div class="wall"><div class="empty-wall">${svgIcon('note',30,C.muted2)}<span class="et">还没有便签</span><span class="es">点下方「记一笔」，随手写下第一个念头</span></div></div>`;
+  }
+  return `<div class="wall">${list.map((n,i)=>noteCard(n,i)).join('')}</div>`;
+}
+
+/* 便签数据（含两张贴图便签） */
+const NOTES=[
+  {text:'记得把一闪而过的灵感立刻记下来，别等它溜走。',color:'mint', t:'刚刚',   pin:true},
+  {text:'会议要点：周五前给评审反馈，重点看交互状态切换顺不顺。',color:'amber',t:'2 小时前',pin:true},
+  {text:'周末去山里拍的，冲印两张放桌上。',color:'sky',  t:'今天', imgs:1},
+  {text:'菜谱截图：番茄牛腩，周末照着做。',color:'coral',t:'昨天', imgs:3},
+  {text:'“少即是多”——删掉一切不影响核心表达的装饰。',color:'lilac',t:'昨天'},
+  {text:'要买：牛奶、鸡蛋、猫粮、咖啡豆。',color:'coral',t:'11-20'},
+  {text:'配色参考：薄荷 #34D399 / 琥珀 #E6B23C / 珊瑚 #F2705C。',color:'amber',t:'11-16'},
+  {text:'下次试试把便签墙做成瀑布流，长短卡片混排更有味道。',color:'mint',t:'11-15'},
+];
+
+/* 整岛 */
+function island(cfg){
+  cfg=cfg||{};
+  const filter=cfg.filter||'all';
+  const src=cfg.empty?[]:(cfg.notes||NOTES);
+  const cnt=filter==='all'?src.length:src.filter(n=>n.color===filter).length;
+  const allOn=filter==='all';
+  const hd=`<div class="hd"><div class="title">便签</div><div class="right"><span class="pillnum">${cnt} 张</span></div></div>`;
+  const toolbar=`<div class="toolbar" data-hero="${cfg.hero?'1':''}">
+      <span class="chip ${allOn?'on':''}" data-filter="all">全部</span>
+      <span class="dots">${colorDots(Object.keys(NC),filter)}</span>
+      <span class="spacer"></span>
+      <span class="searchbtn">${svgIcon('search',15,C.muted)}</span>
+    </div>`;
+  const add=`<div class="addrow">${plus(13)}<span class="ph">记一笔…随手留下一个念头</span><span class="hint">回车保存</span></div>`;
+  return `<div class="island">
+    ${rail('note')}
+    <div class="content">${hd}${toolbar}${wallBody(src,filter)}${add}</div>
+  </div>`;
+}
+
+/* 编辑器整岛（opts.imgs>0 时显示贴图条，岛屿加高） */
+function editIsland(opts){
+  opts=opts||{};
+  const pal=Object.keys(NC);
+  const sel=opts.sel||'amber';
+  const nImg=opts.imgs||0;
+  let strip='';
+  if(nImg>0){
+    let thumbs='';
+    for(let k=0;k<nImg;k++){ thumbs+=`<div class="ithumb" style="background:${photoBg(k)}"><span class="x">×</span></div>`; }
+    strip=`<div class="imgs">${thumbs}
+      <div class="iadd">${plus(14)}<span>添加图片</span></div>
+      <div class="pastehint"><b>Ctrl+V</b> 粘贴截图<br>或把图片拖进来</div>
+    </div>`;
+  }
+  return `<div class="island form ${nImg?'tall':''}">
+    ${rail('note')}
+    <div class="content">
+      <div class="hd"><div class="title">${nImg?'编辑便签':'新建便签'}</div><div class="right"><span style="display:flex;color:var(--t-muted)">${svgIcon('back',18,C.muted)}</span></div></div>
+      <div class="edwrap">
+        <div class="prow"><span class="plab">便签颜色</span><div class="palette">${colorDots(pal,sel,'pdot')}</div></div>
+        <div class="ta"><span class="ph">${nImg?'配一句说明，或直接截图粘贴…':'把一闪而过的念头随手记下来…'}</span><span class="caret"></span></div>
+        ${strip}
+        <div class="efoot">
+          <span class="pok">${svgIcon('pin',13,C.accent)}置顶</span>
+          <span class="charcount">0 / 500</span>
+        </div>
+      </div>
+      <div class="btnrow"><div class="btn ghost">取消</div><div class="btn primary">保存便签</div></div>
+    </div>
+  </div>`;
+}
+
+/* 图片放大查看（岛内灯箱） */
+function viewerIsland(){
+  const behind=wallBody(NOTES,'all');
+  return `<div class="island">
+    ${rail('note')}
+    <div class="content">
+      <div class="hd"><div class="title">便签</div><div class="right"><span class="pillnum">8 张</span></div></div>
+      ${behind}
+    </div>
+    <div class="lightbox">
+      <div class="lb-top">
+        <span class="lb-idx">图片 1 / 3</span>
+        <div class="lb-acts">
+          <span class="lb-btn">${svgIcon('expand',12,C.ink)}在新窗口打开</span>
+          <span class="lb-x">${svgIcon('x',14,C.muted)}</span>
+        </div>
+      </div>
+      <div class="lb-stage">
+        <span class="lb-nav">${svgIcon('chevL',16,'#dfe4ee')}</span>
+        <div class="lb-img" style="background:${photoBg(1)}"><span class="ph2">${photoGlyph(38)}</span><span class="lb-tag">示例图片 · 占位示意</span></div>
+        <span class="lb-nav">${svgIcon('chevR',16,'#dfe4ee')}</span>
+      </div>
+      <div class="lb-cap">菜谱截图：番茄牛腩，周末照着做。</div>
+      <div class="lb-dots"><i class="on"></i><i></i><i></i></div>
+    </div>
+  </div>`;
+}
+
+/* 独立置顶窗口 · 图片查看器 */
+function windowHTML(){
+  const film=[0,1,2].map(k=>`<div class="fth ${k===0?'on':''}" style="background:${photoBg(k)}"></div>`).join('');
+  return `<div class="oswin">
+    <div class="wbar">
+      <span class="wicon">${photoGlyph(16)}</span>
+      <span class="wtitle">菜谱截图.png</span>
+      <span class="wsub">· 第 1 / 3 张</span>
+      <span class="wspacer"></span>
+      <span class="wtoggle">${svgIcon('pin',12,C.accent)}总是在最前</span>
+      <span class="wbtn">${svgIcon('mini',15,C.muted)}</span>
+      <span class="wbtn x">${svgIcon('x',15,'#e7b0a6')}</span>
+    </div>
+    <div class="wtool">
+      <span class="zoomgrp"><span class="zb">${svgIcon('minus',14,C.muted)}</span><span class="zval">120%</span><span class="zb">${svgIcon('plusic',14,C.muted)}</span></span>
+      <span class="wchip">适应窗口</span>
+      <span class="wchip">1 : 1</span>
+      <span class="wspacer"></span>
+      <span class="wchip">‹ 上一张</span>
+      <span class="wchip">下一张 ›</span>
+    </div>
+    <div class="wstage">
+      <div class="bigimg" style="background:${photoBg(1)}"><span style="color:rgba(255,255,255,.52)">${photoGlyph(56)}</span></div>
+      <span class="panhint">滚轮缩放 · 按住拖动平移 · 双击 1:1 · 拖右下角改窗口大小</span>
+    </div>
+    <div class="wfilm">${film}<span class="wspacer"></span><span class="wchip">＋ 添加到便签</span></div>
+  </div>`;
+}
+
+/* 挂载 */
+function mountScaled(id,html,scale,h){
+  const host=document.getElementById(id);
+  const H=h||300, w=520*scale, hh=H*scale;
+  host.style.width=w+'px'; host.style.height=hh+'px';
+  const inner=document.createElement('div');
+  inner.className='scaled';
+  inner.style.transform='scale('+scale+')';
+  inner.style.width='520px'; inner.style.height=H+'px';
+  inner.innerHTML=html;
+  host.innerHTML=''; host.appendChild(inner);
+  return inner;
+}
+
+/* hero 可切换颜色筛选 */
+let heroFilter='all';
+function renderHero(anim){
+  const inner=mountScaled('hero',island({filter:heroFilter,hero:true}),2);
+  if(anim){ inner.style.opacity='0'; requestAnimationFrame(()=>{inner.style.opacity='1';}); }
+}
+document.getElementById('hero').addEventListener('click',e=>{
+  const dot=e.target.closest('.cdot');
+  const chip=e.target.closest('.chip');
+  let nf=heroFilter;
+  if(dot){
+    const dots=[...e.target.closest('.dots').children];
+    const idx=dots.indexOf(dot);
+    const key=Object.keys(NC)[idx];
+    nf=(heroFilter===key)?'all':key;
+  }else if(chip){
+    nf='all';
+  }else{return;}
+  if(nf===heroFilter) return;
+  heroFilter=nf; renderHero(true);
+});
+renderHero(false);
+
+mountScaled('v-filter', island({filter:'amber'}), 0.95);
+mountScaled('v-edit',   editIsland(), 0.95, 330);
+mountScaled('v-editimg',editIsland({sel:'coral',imgs:2}), 0.95, 372);
+mountScaled('v-viewer', viewerIsland(), 0.95);
+mountScaled('v-empty',  island({filter:'all', empty:true}), 0.95);
+document.getElementById('winviewer').innerHTML = windowHTML();
+
+window.__ready=true;
+</script>
+</body>
+</html>
