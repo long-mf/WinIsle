@@ -49,3 +49,6 @@
 # assistant 临时/备份产物
 /WinIsle.exe.bak-*
 /WinIsle.prev_dur.exe
+
+# 官网旧版备份（本地保留，不入库）
+/docs/_backup/
