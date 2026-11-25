@@ -1587,6 +1587,15 @@ struct IslandApp {
     /// 
     /// ointer 
     todo_addrow_hover: bool,
+    /// 行内编辑：正在编辑的待办 id（仅未完成可编辑）
+    todo_edit_id: Option<u64>,
+    /// 行内编辑缓冲区
+    todo_edit_buf: String,
+    /// 行内编辑是否需要请求焦点
+    todo_edit_need_focus: bool,
+    todo_edit_focus_tries: u8,
+    /// 行内编辑是否曾获得过焦点（用于判断失焦提交/取消）
+    todo_edit_was_focused: bool,
     /// 调试用：FAKE_DELETE 仅删除一次
     todo_fake_deleted: bool,
     /// ?+ egui time?
@@ -1667,6 +1676,7 @@ impl IslandApp {
     fn wants_keyboard_input(&self) -> bool {
         self.w_city_search
             || self.todo_editing
+            || self.todo_edit_id.is_some()
             || self.remind_form.is_some()
             || (self.active == Module::Note && self.note.wants_keyboard())
     }
@@ -1964,6 +1974,11 @@ let (r, cov, settled) = if light {
             todo_focus_tries: 0,
             todo_was_focused: false,
             todo_addrow_hover: false,
+            todo_edit_id: None,
+            todo_edit_buf: String::new(),
+            todo_edit_need_focus: false,
+            todo_edit_focus_tries: 0,
+            todo_edit_was_focused: false,
             todo_fake_deleted: false,
             todo_scroll: 0.0,
             todo_scroll_target: 0.0,
@@ -2182,6 +2197,18 @@ if std::env::var_os("WINISLE_REMIND_DOT").is_some() {
             app.todo_debug_edit = true;
             app.todo_need_focus = true;
             app.todo_focus_tries = 30;
+        }
+        // 行内编辑渲染自检（离屏截图用，不请求系统焦点）
+        if let Ok(v) = std::env::var("WINISLE_TODO_ITEM_EDIT") {
+            app.active = Module::Todo;
+            let idx: usize = std::env::var("WINISLE_TODO_ITEM_EDIT_INDEX")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            if let Some(first) = app.todos.iter().filter(|t| !t.done && !t.archived).nth(idx) {
+                app.todo_edit_id = Some(first.id);
+                app.todo_edit_buf = if v.is_empty() { first.title.clone() } else { v };
+            }
         }
         // 
         if std::env::var_os("WINISLE_TODO_FAKE_ENTER").is_some() {
@@ -7826,6 +7853,17 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         }
         // 
         let item_rows = rows.iter().filter(|r| !matches!(r, Tr::G(_, _))).count();
+        // 若正在行内编辑的行因切换 tab/筛选或完成而消失，退出编辑态避免悬空
+        if let Some(eid) = self.todo_edit_id {
+            let still = rows
+                .iter()
+                .any(|r| matches!(r, Tr::T(t) if t.id == eid && !t.done));
+            if !still {
+                self.todo_edit_id = None;
+                self.todo_edit_need_focus = false;
+                self.todo_edit_was_focused = false;
+            }
+        }
         let empty = item_rows == 0;
         if empty {
             rows.clear();
@@ -7914,6 +7952,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         let mut archive_id: Option<u64> = None;
         let mut restore_id: Option<u64> = None;
         let mut delete_id: Option<u64> = None;
+        let mut commit_edit: Option<(u64, String)> = None;
         let interactive = true;
         // ??
         let del_w = 20.0;
@@ -7962,8 +8001,117 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                         };
                         let avail = (x1 - del_w - btn_area - 8.0) - title_x;
                         let shown = fit_text(ui, &t.title, task_font.clone(), avail);
-                        let tcol = if t.done { muted2 } else { ink };
-                        p.text(egui::pos2(title_x, ry), egui::Align2::LEFT_CENTER, &shown, task_font.clone(), tcol);
+                        let is_editing_row = !t.done && self.todo_edit_id == Some(t.id);
+                        if is_editing_row {
+                            // ---- 行内编辑（仅未完成）----
+                            let er = egui::Rect::from_min_max(
+                                egui::pos2(title_x, ry - 11.0),
+                                egui::pos2(title_x + avail.max(60.0), ry + 11.0),
+                            );
+                            let eid = egui::Id::new(("winisle_todo_item", t.id));
+                            if ui.rect_contains_pointer(er) {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                            }
+                            let mut memfoc = ui.ctx().memory(|m| m.has_focus(eid));
+                            if std::env::var_os("WINISLE_TODO_MEMFOCUS").is_some() && !memfoc {
+                                ui.ctx().memory_mut(|m| m.request_focus(eid));
+                                memfoc = true;
+                            }
+                            if self.todo_edit_need_focus && !memfoc && self.todo_edit_focus_tries > 0 {
+                                ui.ctx().memory_mut(|m| m.request_focus(eid));
+                                if let Some(mut st) = egui::text_edit::TextEditState::load(ui.ctx(), eid) {
+                                    st.cursor.set_char_range(Some(egui::text::CCursorRange::one(
+                                        egui::text::CCursor::new(self.todo_edit_buf.chars().count()),
+                                    )));
+                                    st.store(ui.ctx(), eid);
+                                }
+                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Focus);
+                                self.todo_edit_focus_tries = self.todo_edit_focus_tries.saturating_sub(1);
+                            }
+                            if memfoc {
+                                self.todo_edit_need_focus = false;
+                                self.todo_edit_was_focused = true;
+                            }
+                            let vp_before = ui.ctx().input(|i| i.focused);
+                            let force_caret = !vp_before && memfoc;
+                            if force_caret {
+                                ui.ctx().input_mut(|i| i.focused = true);
+                            }
+                            let buf = &mut self.todo_edit_buf;
+                            let te = egui::TextEdit::singleline(buf)
+                                .frame(false)
+                                .id(eid)
+                                .font(task_font.clone())
+                                .text_color(ink)
+                                .vertical_align(egui::Align::Center)
+                                .margin(egui::Margin::symmetric(0, 0));
+                            ui.scope(|ui| {
+                                let v = &mut ui.style_mut().visuals;
+                                v.extreme_bg_color = egui::Color32::TRANSPARENT;
+                                v.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
+                                v.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
+                                v.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
+                                v.widgets.open.bg_fill = egui::Color32::TRANSPARENT;
+                                v.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(52, 211, 153, 56);
+                                v.text_cursor.stroke.color = egui::Color32::from_rgb(233, 236, 242);
+                                v.text_cursor.stroke.width = 1.5;
+                                v.override_text_color = None;
+                                ui.put(er, te);
+                            });
+                            if force_caret {
+                                ui.ctx().input_mut(|i| i.focused = vp_before);
+                            }
+                            let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                            let mem_now = ui.ctx().memory(|m| m.has_focus(eid));
+                            // 即时保存：编辑中只要内容变化就写回（不等回车）
+                            let val = self.todo_edit_buf.trim().to_string();
+                            if !val.is_empty() && val != t.title {
+                                commit_edit = Some((t.id, val));
+                            }
+                            if enter || esc || (self.todo_edit_was_focused && !mem_now) {
+                                self.todo_edit_id = None;
+                                self.todo_edit_need_focus = false;
+                                self.todo_edit_was_focused = false;
+                            }
+                        } else {
+                            let tcol = if t.done { muted2 } else { ink };
+                            p.text(egui::pos2(title_x, ry), egui::Align2::LEFT_CENTER, &shown, task_font.clone(), tcol);
+                            // 未完成：点标题行内编辑（悬停 I 型光标 + 软激活预放开）
+                            if !t.done && interactive && visible {
+                                let hit = egui::Rect::from_min_max(
+                                    egui::pos2(title_x - 2.0, ry - 11.0),
+                                    egui::pos2(x1 - del_w - 8.0, ry + 11.0),
+                                );
+                                let hovering = ui.rect_contains_pointer(hit);
+                                if hovering {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                                    if self.todo_edit_id.is_none() && !platform::is_activatable() {
+                                        platform::set_activatable_soft(self.hwnd, true);
+                                    }
+                                }
+                                let tr = ui
+                                    .interact(hit, ui.id().with(("todo_edit", t.id)), egui::Sense::click())
+                                    .on_hover_cursor(egui::CursorIcon::Text);
+                                if tr.clicked() {
+                                    if let Some(old) = self.todo_edit_id {
+                                        if old != t.id {
+                                            ui.ctx().memory_mut(|m| {
+                                                m.surrender_focus(egui::Id::new(("winisle_todo_item", old)));
+                                            });
+                                        }
+                                    }
+                                    self.todo_edit_id = Some(t.id);
+                                    self.todo_edit_buf = t.title.clone();
+                                    self.todo_edit_need_focus = true;
+                                    self.todo_edit_focus_tries = 30;
+                                    self.todo_edit_was_focused = false;
+                                    if !platform::is_activatable() {
+                                        platform::set_activatable(self.hwnd, true);
+                                    }
+                                }
+                            }
+                        }
                         if t.done {
                             // ?
                             let tw = text_w(ui, &shown, task_font.clone());
@@ -8354,6 +8502,22 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
 
         // ----  ----
         let mut dirty = false;
+        if let Some((id, val)) = commit_edit {
+            if let Some(t) = self.todos.iter_mut().find(|t| t.id == id) {
+                if t.title != val {
+                    t.title = val;
+                    dirty = true;
+                }
+            }
+        }
+        // 编辑中的行若被勾选完成/归档/删除，立即退出编辑，避免状态悬空
+        if let Some(eid) = self.todo_edit_id {
+            if toggle_id == Some(eid) || archive_id == Some(eid) || delete_id == Some(eid) {
+                self.todo_edit_id = None;
+                self.todo_edit_need_focus = false;
+                self.todo_edit_was_focused = false;
+            }
+        }
         if let Some(id) = toggle_id {
             let was_done = self.todos.iter().find(|t| t.id == id).map(|t| t.done).unwrap_or(true);
             let mut newseq = 0u64;
@@ -9952,6 +10116,9 @@ if let Ok(v) = std::env::var("WINISLE_IDLE_FACE") {
             self.todo_editing = false;
             self.todo_need_focus = false;
             self.todo_was_focused = false;
+            self.todo_edit_id = None;
+            self.todo_edit_need_focus = false;
+            self.todo_edit_was_focused = false;
             // 
             if !self.w_city_search && !self.remind_soft_hover && self.remind_form.is_none() {
                 platform::set_activatable_soft(self.hwnd, false);
@@ -10980,6 +11147,9 @@ if self.dbg_page.is_none() && self.target < 0.5 && self.expanded < 0.02 {
             self.todo_editing = false;
             self.todo_need_focus = false;
             self.todo_was_focused = false;
+            self.todo_edit_id = None;
+            self.todo_edit_need_focus = false;
+            self.todo_edit_was_focused = false;
             if !self.w_city_search {
                 platform::set_activatable_soft(self.hwnd, false);
             }

@@ -220,7 +220,7 @@
       <h1>把「灵动岛」<br>带到 <span class="hl">Windows 桌面</span></h1>
       <p class="sub">WinIsle 常驻屏幕顶部，收起是一条精致的小岛；轻轻一展，就是你的控制中心——音乐、待办、便签、提醒、天气与生活，随手切换，不打断手上的事。</p>
       <div class="cta">
-        <a class="btn btn-primary" id="btn-dl-top" href="https://github.com/long-mf/WinIsle/releases/latest" target="_blank" rel="noopener">
+        <a class="btn btn-primary" id="btn-dl-top" href="download/WinIsle-Setup-0.1.7.exe" download>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           免费下载 <span id="ver-top"></span>
         </a>
@@ -423,32 +423,33 @@
     <div class="sec-head">
       <div class="kicker">Download</div>
       <h2>下载安装</h2>
-      <p>版本与安装包由 GitHub Releases 自动分发，下方按钮始终指向最新版。</p>
+      <p>安装包由本站直接提供，无需前往 GitHub；下载后可用下方 SHA256 校验文件完整性。</p>
     </div>
     <div class="dl-grid">
       <div class="dl-main">
         <span class="ver">最新版本 <b id="ver-badge">—</b></span>
         <h3>把这条小岛，安到你的桌面</h3>
         <div class="line">安装包 <b id="size-dl">—</b> · 发布于 <b id="date-dl">—</b></div>
+        <div class="line" style="font-size:12px;word-break:break-all;color:var(--muted);margin-top:4px">SHA256 <b id="sha-dl" style="font-weight:600">—</b></div>
         <div class="req">系统要求：Windows 10 / 11（x64）。安装后开机自启可选，内置自动更新，日后无需手动回官网升级。</div>
         <div class="actions">
-          <a class="btn btn-primary" id="btn-dl" href="https://github.com/long-mf/WinIsle/releases/latest" target="_blank" rel="noopener">
+          <a class="btn btn-primary" id="btn-dl" href="download/WinIsle-Setup-0.1.7.exe" download>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             下载安装包
           </a>
-          <a class="btn btn-ghost" href="https://github.com/long-mf/WinIsle/releases" target="_blank" rel="noopener">全部版本</a>
+          <a class="btn btn-ghost" href="download/" target="_blank" rel="noopener">本地下载目录</a>
         </div>
       </div>
       <div class="dl-side">
         <div class="opt">
           <h4>安装版 <span class="tag">推荐</span></h4>
           <p>标准安装程序，支持开机自启与桌面快捷方式，卸载干净。</p>
-          <a id="btn-setup" href="https://github.com/long-mf/WinIsle/releases/latest" target="_blank" rel="noopener">下载 Setup 安装包 →</a>
+          <a id="btn-setup" href="download/WinIsle-Setup-0.1.7.exe" download>下载 Setup 安装包 →</a>
         </div>
         <div class="opt">
           <h4>免安装绿色版</h4>
           <p>压缩包解压即用，数据跟着文件夹走，适合放进 U 盘或便携使用。</p>
-          <a id="btn-portable" href="https://github.com/long-mf/WinIsle/releases/latest" target="_blank" rel="noopener">下载便携版 zip →</a>
+          <a id="btn-portable" href="download/WinIsle-0.1.7-portable.zip" download>下载便携版 zip →</a>
         </div>
       </div>
     </div>
@@ -469,26 +470,29 @@
 
 <script>
 (async () => {
-  const api = 'https://api.github.com/repos/long-mf/WinIsle/releases/latest';
+  // 下载由本站直接提供：读取同目录 download/latest.json，不依赖 GitHub API（国内网络也可用）
+  const manifestUrl = 'download/latest.json';
   const set = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  const setHref = (id, href) => { const el = document.getElementById(id); if (el) { el.href = href; el.setAttribute('download', ''); } };
   try {
-    const rel = await fetch(api, { headers: { 'Accept': 'application/vnd.github+json' } }).then(r => { if (!r.ok) throw 0; return r.json(); });
-    const ver = (rel.tag_name || '').replace(/^v/i, '');
-    const assets = rel.assets || [];
-    const setup = assets.find(a => /^WinIsle-Setup-[\d.]+\.exe$/i.test(a.name)) || assets.find(a => /WinIsle-Setup-.*\.exe/i.test(a.name));
-    const portable = assets.find(a => /portable\.zip$/i.test(a.name)) || assets.find(a => /\.zip$/i.test(a.name));
+    const m = await fetch(manifestUrl, { cache: 'no-store' }).then(r => { if (!r.ok) throw 0; return r.json(); });
+    const ver = m.version || '';
     if (ver) { set('ver-top', 'v' + ver); set('ver-badge', 'v' + ver); }
-    if (setup) {
-      const mb = (setup.size / 1048576).toFixed(1) + ' MB';
+    if (m.setup) {
+      const mb = (m.setup.size / 1048576).toFixed(1) + ' MB';
       set('size-top', mb); set('size-dl', mb);
-      document.getElementById('btn-dl-top').href = setup.browser_download_url;
-      document.getElementById('btn-dl').href = setup.browser_download_url;
-      const bs = document.getElementById('btn-setup'); if (bs) bs.href = setup.browser_download_url;
+      setHref('btn-dl-top', m.setup.url);
+      setHref('btn-dl', m.setup.url);
+      setHref('btn-setup', m.setup.url);
+      set('sha-dl', m.setup.sha256 || '—');
     }
-    if (portable) { const bp = document.getElementById('btn-portable'); if (bp) bp.href = portable.browser_download_url; }
-    if (rel.published_at) set('date-dl', rel.published_at.slice(0, 10));
+    if (m.portable) setHref('btn-portable', m.portable.url);
+    if (m.pub_date) set('date-dl', m.pub_date);
   } catch (e) {
-    ['ver-top','ver-badge','size-top','size-dl','date-dl'].forEach(id => set(id, ''));
+    // 静态兜底（极少数直接双击本地文件、fetch 被浏览器拦截的情况）
+    set('ver-top', 'v0.1.7'); set('ver-badge', 'v0.1.7');
+    set('size-top', '5.8 MB'); set('size-dl', '5.8 MB'); set('date-dl', '2026-11-25');
+    set('sha-dl', '9d428c1f6204c9812c33ede423fb94e02d9fae89f400e2862517f1fe355c29e3');
   }
 })();
 </script>
