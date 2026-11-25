@@ -4584,6 +4584,62 @@ fn draw_collapsed_weather(&mut self, painter: &egui::Painter, x: f32, _x1: f32, 
         );
     }
 
+    /// 歌名 + 歌手一行排不下时横向走马灯；保留歌名加粗、歌手次要色。
+    fn draw_song_marquee(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        title: &str,
+        artist: &str,
+        title_font: egui::FontId,
+        title_color: egui::Color32,
+        artist_font: egui::FontId,
+        artist_color: egui::Color32,
+        t: f64,
+        fade: bool,
+    ) {
+        let mut job = egui::text::LayoutJob::default();
+        job.wrap.max_rows = 1;
+        job.wrap.max_width = f32::INFINITY;
+        job.append(
+            title,
+            0.0,
+            egui::TextFormat { font_id: title_font, color: title_color, ..Default::default() },
+        );
+        if !artist.is_empty() {
+            job.append(
+                "  -  ",
+                0.0,
+                egui::TextFormat { font_id: artist_font.clone(), color: artist_color, ..Default::default() },
+            );
+            job.append(
+                artist,
+                0.0,
+                egui::TextFormat { font_id: artist_font, color: artist_color, ..Default::default() },
+            );
+        }
+        let galley = painter.layout_job(job);
+        let tw = galley.size().x;
+        let y = rect.center().y - galley.size().y * 0.5;
+        if tw <= rect.width() {
+            painter.with_clip_rect(rect).galley(egui::pos2(rect.left(), y), galley, title_color);
+        } else {
+            painter.ctx().request_repaint();
+            // 循环走马灯：文字 + 固定间隔为一个周期，首尾衔接。
+            let gap = 48.0f32;
+            let period = tw + gap;
+            let off = ((t * 28.0) as f32) % period;
+            let fw = (rect.width() * 0.18).clamp(18.0, 42.0);
+            for k in 0..2 {
+                let x = rect.left() - off + k as f32 * period;
+                if x >= rect.right() || x + tw <= rect.left() {
+                    continue;
+                }
+                self.galley_left_fade(painter, rect, egui::pos2(x, y), &galley, title_color, fw, fade, fade);
+            }
+        }
+    }
+
     fn draw_marquee(
         &self,
         painter: &egui::Painter,
@@ -4602,14 +4658,19 @@ fn draw_collapsed_weather(&mut self, painter: &egui::Painter, x: f32, _x1: f32, 
             let lx = if left_align { rect.left() } else { rect.center().x - tw * 0.5 };
             painter.galley(egui::pos2(lx, y), galley, color);
         } else {
-            // 
-let max_off = (tw - rect.width()).max(0.0);
-            let off = ((t * 28.0) as f32).min(max_off);
-            //  alpha             // 
-            let fade_left = left_fade;
-            let fade_right = left_fade && (tw - (off + rect.width()) > 0.5);
+            // 循环走马灯：一段文字 + 固定间隔为一个周期。
+            painter.ctx().request_repaint();
+            let gap = 48.0f32;
+            let period = tw + gap;
+            let off = ((t * 28.0) as f32) % period;
             let fw = (rect.width() * 0.18).clamp(18.0, 42.0);
-            self.galley_left_fade(painter, rect, egui::pos2(rect.left() - off, y), &galley, color, fw, fade_left, fade_right);
+            for k in 0..2 {
+                let x = rect.left() - off + k as f32 * period;
+                if x >= rect.right() || x + tw <= rect.left() {
+                    continue;
+                }
+                self.galley_left_fade(painter, rect, egui::pos2(x, y), &galley, color, fw, left_fade, left_fade);
+            }
         }
     }
 
@@ -5051,18 +5112,6 @@ let need_rebuild = match &self.fallback_cover_tex {
         let title = if self.music.title.is_empty() { "未播放曲目".to_string() } else { self.music.title.clone() };
         let artist = self.music.artist.clone();
         let avail = (cx1 - tx).max(40.0);
-        //  LayoutJob 1 + ?
-        let one_line = |text: &str, font: egui::FontId, color: egui::Color32, maxw: f32| -> std::sync::Arc<egui::Galley> {
-            let mut job = egui::text::LayoutJob::single_section(
-                text.to_string(),
-                egui::TextFormat { font_id: font, color, ..Default::default() },
-            );
-            job.wrap.max_width = maxw;
-            job.wrap.max_rows = 1;
-            job.wrap.break_anywhere = true;
-            job.wrap.overflow_character = Some('…');
-            ui.fonts(|f| f.layout_job(job))
-        };
         let af = egui::FontId::proportional(12.0);
         let gap = if artist.is_empty() { 0.0 } else { 16.0 };
         let aw = if artist.is_empty() {
@@ -5070,21 +5119,11 @@ let need_rebuild = match &self.fallback_cover_tex {
         } else {
             ui.fonts(|f| f.layout_no_wrap(artist.clone(), af.clone(), dim).size().x)
         };
-        // - ?>=12.5
-let mut fit_tsz: Option<f32> = None;
-        let mut s = 15.5f32;
-        while s >= 12.5 - 1e-3 {
-            let w = ui.fonts(|f| f.layout_no_wrap(title.clone(), bold_font(s), ink).size().x);
-            if w + gap + aw <= avail {
-                fit_tsz = Some(s);
-                break;
-            }
-            s -= 0.5;
-        }
         let title_cy_single = rect.top() + CONTENT_PAD_T + 31.0;
-        if let Some(ts) = fit_tsz {
-            let tf = bold_font(ts);
-            let tw = ui.fonts(|f| f.layout_no_wrap(title.clone(), tf.clone(), ink).size().x);
+        // 字号固定为正常展示大小；超长不再缩小，直接走循环走马灯。
+        let tf = bold_font(15.5);
+        let tw = ui.fonts(|f| f.layout_no_wrap(title.clone(), tf.clone(), ink).size().x);
+        if tw + gap + aw <= avail {
             painter.text(egui::pos2(tx, title_cy_single), egui::Align2::LEFT_CENTER, &title, tf, ink);
             if !artist.is_empty() {
                 let mid_x = tx + tw + gap * 0.5;
@@ -5093,29 +5132,23 @@ let mut fit_tsz: Option<f32> = None;
                 painter.text(egui::pos2(ax, title_cy_single), egui::Align2::LEFT_CENTER, &artist, af, dim);
             }
         } else {
-            let mut tsz = 15.5f32;
-            loop {
-                let w = ui.fonts(|f| f.layout_no_wrap(title.clone(), bold_font(tsz), ink).size().x);
-                if w <= avail || tsz <= 12.5 { break; }
-                tsz -= 0.5;
-            }
-            let tf = bold_font(tsz);
-            let af2 = egui::FontId::proportional(11.5);
-            let (title_cy, artist_cy) = if artist.is_empty() {
-                (rect.top() + CONTENT_PAD_T + 31.0, 0.0)
-            } else {
-                (rect.top() + CONTENT_PAD_T + 23.0, rect.top() + CONTENT_PAD_T + 39.0)
-            };
-            let tg = one_line(&title, tf, ink, avail);
-            painter.galley(egui::pos2(tx, title_cy - tg.size().y * 0.5), tg, ink);
-            if !artist.is_empty() {
-                let prefix = "?";
-                let pw = ui.fonts(|f| f.layout_no_wrap(prefix.to_string(), af2.clone(), dim).size().x);
-                let ag = one_line(&artist, af2.clone(), dim, (avail - pw).max(10.0));
-                let ay = artist_cy - ag.size().y * 0.5;
-                painter.text(egui::pos2(tx, artist_cy), egui::Align2::LEFT_CENTER, prefix, af2.clone(), dim);
-                painter.galley(egui::pos2(tx + pw, ay), ag, dim);
-            }
+            // 超长时保持字号不变，单行循环走马灯显示。
+            let mrect = egui::Rect::from_min_max(
+                egui::pos2(tx, title_cy_single - 12.0),
+                egui::pos2(cx1, title_cy_single + 12.0),
+            );
+            self.draw_song_marquee(
+                painter,
+                mrect,
+                &title,
+                &artist,
+                bold_font(15.5),
+                ink,
+                egui::FontId::proportional(12.0),
+                dim,
+                t,
+                self.cfg.edge_fade,
+            );
         }
 
         // + 

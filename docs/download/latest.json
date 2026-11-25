@@ -1,17 +1,17 @@
 {
-    "version":  "0.1.63",
-    "notes":  "WinIsle v0.1.63：修复设置页/城市搜索返回时上一页内容残留的问题，改为目标页面入场动画，过渡更自然。",
-    "setup":  {
-                  "name":  "WinIsle-Setup-0.1.63.exe",
-                  "url":  "download/WinIsle-Setup-0.1.63.exe",
-                  "size":  6112759,
-                  "sha256":  "ef8c6f0880918419e9630bca9f59b7023d420288e0f7faa5e887c06745e3b881"
-              },
-    "portable":  {
-                     "name":  "WinIsle-0.1.63-portable.zip",
-                     "url":  "download/WinIsle-0.1.63-portable.zip",
-                     "size":  5384710,
-                     "sha256":  "07ec52c34b4ea03d7656557ea8ed7306ea95ae6f1ea2eba323dce3477e252501"
-                 },
-    "pub_date":  "2026-11-25"
+    "version": "0.1.64",
+    "notes": "WinIsle v0.1.64：音乐页歌名/歌手超长时改为循环走马灯，字号保持不变。",
+    "setup": {
+        "name": "WinIsle-Setup-0.1.64.exe",
+        "url": "download/WinIsle-Setup-0.1.64.exe",
+        "size": 6113170,
+        "sha256": "7bc61241736063d42035bb966af505a26101a8dbf4874978ca77348715c4e612"
+    },
+    "portable": {
+        "name": "WinIsle-0.1.64-portable.zip",
+        "url": "download/WinIsle-0.1.64-portable.zip",
+        "size": 5384119,
+        "sha256": "7230327460164482ed36b58d92528b2920130d50350f62a8ccb16fa6920ff4f4"
+    },
+    "pub_date": "2026-11-25"
 }
