@@ -1,17 +1,17 @@
 {
-    "version":  "0.1.62",
-    "notes":  "WinIsle v0.1.62：修复天气详情中今日高低温文案（原误显示为「昨/今」，现为「最高/最低」）。",
+    "version":  "0.1.63",
+    "notes":  "WinIsle v0.1.63：修复设置页/城市搜索返回时上一页内容残留的问题，改为目标页面入场动画，过渡更自然。",
     "setup":  {
-                  "name":  "WinIsle-Setup-0.1.62.exe",
-                  "url":  "download/WinIsle-Setup-0.1.62.exe",
-                  "size":  6112682,
-                  "sha256":  "7112d6bfcb36f2f3ecb34e96cf356739dd508f171067bf5037a005a41e2bfe93"
+                  "name":  "WinIsle-Setup-0.1.63.exe",
+                  "url":  "download/WinIsle-Setup-0.1.63.exe",
+                  "size":  6112759,
+                  "sha256":  "ef8c6f0880918419e9630bca9f59b7023d420288e0f7faa5e887c06745e3b881"
               },
     "portable":  {
-                     "name":  "WinIsle-0.1.62-portable.zip",
-                     "url":  "download/WinIsle-0.1.62-portable.zip",
-                     "size":  5384190,
-                     "sha256":  "cda72218ab6e2a732a39e525453a60749f061a0361c3c1e523655d715bbf6a13"
+                     "name":  "WinIsle-0.1.63-portable.zip",
+                     "url":  "download/WinIsle-0.1.63-portable.zip",
+                     "size":  5384710,
+                     "sha256":  "07ec52c34b4ea03d7656557ea8ed7306ea95ae6f1ea2eba323dce3477e252501"
                  },
     "pub_date":  "2026-11-25"
 }

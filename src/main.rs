@@ -5566,11 +5566,7 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
                     }
                 }
             } else if resp.clicked() {
-                self.show_settings = false;
-                self.w_city_search = false;
-                self.w_city_search_from_weather = false;
-                self.w_search_need_focus = false;
-                self.w_search_focus_tries = 0;
+                self.begin_settings_exit();
                 let ni = match idx { 0 => Module::Music, 1 => Module::Todo, 2 => Module::Note, 3 => Module::Reminder, 4 => Module::Weather, _ => Module::Life };
                 if ni == Module::Reminder {
                     // ?
@@ -5662,7 +5658,9 @@ if self.show_rail_update() {
             egui::pos2(content.right() + dx, content.bottom()),
         );
         let cclip = painter.with_clip_rect(content);
-        if svis < 0.999 {
+        // 从天气进入搜索时，天气页要继续垫在搜索层下面，搜索页才能自然淡入而不是先露出空底板。
+        let draw_module = svis < 0.999 || (self.w_city_search && self.w_city_search_from_weather);
+        if draw_module {
             match self.active {
                 Module::Music => {
                     if self.music_amt > 0.5 {
@@ -5690,6 +5688,7 @@ if self.show_rail_update() {
                 Module::Weather => self.draw_weather_page(ui, &cclip, cslide, e),
             }
         }
+        // 设置/搜索离开：旧页不再残留，目标页通过 switch_p 入场动画落位。
         if self.show_settings || svis > 0.001 {
             self.draw_settings_page(ui, painter, content, e, svis);
         }
@@ -8919,6 +8918,23 @@ fn poll_update(&mut self) {
         }
     }
 
+    /// 离开设置/搜索：不保留旧页面图层，只触发目标页的入场动画，避免残影。
+    fn begin_settings_exit(&mut self) {
+        if !self.show_settings && !self.w_city_search {
+            return;
+        }
+        self.show_settings = false;
+        self.w_city_search = false;
+        self.w_city_search_from_weather = false;
+        self.w_search_need_focus = false;
+        self.w_search_focus_tries = 0;
+        self.settings_anim = 0.0;
+        self.w_city_search_anim = 0.0;
+        // 触发目标模块的入场动画：遮罩由深到浅，目标页从轻微位移处落位。
+        self.rail_anim_at = Some(std::time::Instant::now());
+        self.rail_from = self.active.rail_idx() as f32;
+    }
+
     fn open_city_search(&mut self, from_weather: bool) {
         self.show_settings = true;
         self.w_city_search = true;
@@ -8931,18 +8947,20 @@ fn poll_update(&mut self) {
         self.w_search_last_query.clear();
         self.settings_scroll = 0.0;
         self.settings_scroll_target = 0.0;
+        self.w_city_search_anim = 0.0;
+        if from_weather {
+            // 天气侧没有设置主页参与，直接让搜索页在天气页上淡入，避免设置底板闪现。
+            self.settings_anim = 1.0;
+        }
     }
 
     fn close_city_search(&mut self) {
-        let from_weather = self.w_city_search_from_weather;
-        self.w_city_search = false;
-        if from_weather {
-            // 从天气页进来时，返回直接回天气页；把设置页/搜索页的过渡态归零，
-            // 避免设置底板和搜索遮罩在天气页上留下淡出残影。
-            self.show_settings = false;
-            self.settings_anim = 0.0;
-            self.w_city_search_anim = 0.0;
+        if self.w_city_search_from_weather {
+            // 返回天气：只淡出搜索页，干净地露出天气页。
+            self.begin_settings_exit();
+            return;
         }
+        self.w_city_search = false;
         self.w_city_search_from_weather = false;
         self.w_search_need_focus = false;
         self.w_search_focus_tries = 0;
@@ -9243,9 +9261,10 @@ fn poll_update(&mut self) {
             ui.ctx().request_repaint();
         }
         let search_anim = self.w_city_search_anim.clamp(0.0, 1.0);
-        let base_vis = vis * (1.0 - search_anim);
+        // 从天气进入的搜索没有“设置主页”这一层；不要绘制底板，避免搜索淡入/淡出时闪现设置页。
+        let base_vis = if self.w_city_search_from_weather { 0.0 } else { vis * (1.0 - search_anim) };
         // ?
-        if !(self.w_city_search && search_anim >= 0.999) {
+        if base_vis > 0.001 {
             self.draw_settings_base(ui, painter, content, e, base_vis);
         }
         if search_anim > 0.001 {
@@ -9290,7 +9309,7 @@ let clip_p = painter.with_clip_rect(full);
         let bh = egui::Rect::from_center_size(bc, egui::vec2(30.0, 30.0));
         let bresp = ui.interact(bh, ui.id().with("set_back"), egui::Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
         painter.text(bc, egui::Align2::CENTER_CENTER, "\u{E72B}", icon_font(12.5), ink); // Back
-        if bresp.clicked() { self.show_settings = false; self.w_city_search = false; self.w_city_search_from_weather = false; }
+        if bresp.clicked() { self.begin_settings_exit(); }
 
         let left = content.left() + CONTENT_PAD_X;
         let right = content.right() - CONTENT_PAD_X;
