@@ -163,6 +163,11 @@ extern "system" {
     fn SetLayeredWindowAttributes(h: HWND, key: u32, alpha: u8, flags: u32) -> i32;
 }
 
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetTickCount() -> u32;
+}
+
 #[link(name = "gdi32")]
 extern "system" {
     fn CreateRectRgn(x1: i32, y1: i32, x2: i32, y2: i32) -> isize;
@@ -209,6 +214,21 @@ const VK_V: i32 = 0x56;
 /// 原因：egui-winit 会把 Ctrl+V 直接翻译成「粘贴文本」并 return（不再派发 Key 事件），
 /// 当剪贴板是图片时它读不到文本、于是一个事件都不发——所以必须在窗口过程里自行捕获 Ctrl+V。
 static PASTE_IMG_REQ: AtomicBool = AtomicBool::new(false);
+
+/// 用户按下了 Ctrl+V 的「文本粘贴」意图。
+/// egui-winit 在部分情况下取不到文本剪贴板、不产生 Paste 事件，主循环据此后备补发
+/// （见 main.rs update 顶部的 Clipboard 兜底）。
+static PASTE_TEXT_REQ: AtomicBool = AtomicBool::new(false);
+
+// ── 输入法（IME）组词状态跟踪 ──────────────────────────────────────────
+// 目的：Windows 上用「回车」选词（把候选英文上屏）时，系统仍会把这次 WM_KEYDOWN VK_RETURN
+// 转给 winit → egui，被多行 TextEdit 当成换行。这里在窗口过程里记录 IME 组词状态与最近一次
+// IME 消息的时间戳，主循环据此把「选词回车」期间的 Enter 键事件吞掉。
+static IME_COMPOSING: AtomicI32 = AtomicI32::new(0);
+static IME_LAST_TICK: AtomicI64 = AtomicI64::new(0);
+const WM_IME_STARTCOMPOSITION: u32 = 0x010D;
+const WM_IME_ENDCOMPOSITION: u32 = 0x010E;
+const WM_IME_COMPOSITION: u32 = 0x010F;
 
 // 动态整窗鼠标穿透：WS_EX_TRANSPARENT 使窗口对鼠标完全透明（点击落到下方窗口，跨进程有效）。
 // 通过定时器按光标是否落在岛体/面板矩形内来开关，从而“岛体可交互、透明边距可穿透”。
@@ -320,12 +340,23 @@ unsafe extern "system" fn erase_wndproc(hwnd: HWND, msg: u32, wparam: usize, lpa
     if msg == WM_ERASEBKGND {
         return 1;
     }
+    // 跟踪输入法组词状态与最近 IME 活动时间（供主循环吞掉「选词回车」）。
+    if msg == WM_IME_STARTCOMPOSITION {
+        IME_COMPOSING.store(1, Ordering::Relaxed);
+        IME_LAST_TICK.store(unsafe { GetTickCount() } as i64, Ordering::Relaxed);
+    } else if msg == WM_IME_ENDCOMPOSITION {
+        IME_COMPOSING.store(0, Ordering::Relaxed);
+        IME_LAST_TICK.store(unsafe { GetTickCount() } as i64, Ordering::Relaxed);
+    } else if msg == WM_IME_COMPOSITION {
+        IME_LAST_TICK.store(unsafe { GetTickCount() } as i64, Ordering::Relaxed);
+    }
     // 捕获 Ctrl+V（egui-winit 会吞掉该快捷键，图片剪贴板不会产生任何 egui 事件）。
     // 只置位标记、不消费消息，让 winit 照常处理——文本剪贴板仍走它自己的粘贴逻辑。
     if msg == WM_KEYDOWN && wparam as i32 == VK_V {
         unsafe {
             if (GetAsyncKeyState(VK_CONTROL) as u16 & 0x8000) != 0 {
                 PASTE_IMG_REQ.store(true, Ordering::SeqCst);
+                PASTE_TEXT_REQ.store(true, Ordering::SeqCst);
             }
         }
     }
@@ -342,9 +373,34 @@ pub fn clear_paste_image_req() {
     PASTE_IMG_REQ.store(false, Ordering::SeqCst);
 }
 
+/// 取走一次「Ctrl+V 文本粘贴」意图（读后清零）。
+pub fn take_paste_text_req() -> bool {
+    PASTE_TEXT_REQ.swap(false, Ordering::SeqCst)
+}
+
+/// 输入法当前是否正处于组词状态。
+pub fn ime_composing() -> bool {
+    IME_COMPOSING.load(Ordering::Relaxed) != 0
+}
+
+/// 最近 `within_ms` 毫秒内是否收到过 IME 消息（组词/提交/结束）。
+pub fn ime_recent(within_ms: i64) -> bool {
+    let last = IME_LAST_TICK.load(Ordering::Relaxed);
+    if last == 0 {
+        return false;
+    }
+    let now = unsafe { GetTickCount() } as i64;
+    (now - last) < within_ms
+}
+
 /// 仅自测用：模拟一次 Ctrl+V 意图（不产生真实按键，供离屏验证 take 通路）。
 pub fn request_paste_for_test() {
     PASTE_IMG_REQ.store(true, Ordering::SeqCst);
+}
+
+/// 仅自测用：模拟一次「Ctrl+V 文本粘贴」意图。
+pub fn request_paste_text_for_test() {
+    PASTE_TEXT_REQ.store(true, Ordering::SeqCst);
 }
 
 static PREV_V_DOWN: AtomicI32 = AtomicI32::new(0);
@@ -521,6 +577,19 @@ pub fn lbutton_down() -> bool {
     }
     // 兜底：没有收到消息时（例如拖动开始前光标尚在窗口外）仍可用全局状态判断。
     unsafe { (GetAsyncKeyState(VK_LBUTTON) as u16 & 0x8000) != 0 }
+}
+
+/// 把当前线程降到「低于正常」优先级：歌词首次运行时可能全量扫描 Soda 进程内存，
+/// 放到后台低优先级可减少 UI 掉帧（不影响主线程绘制）。
+pub fn lower_current_thread_priority() {
+    extern "system" {
+        fn GetCurrentThread() -> isize;
+        fn SetThreadPriority(hThread: isize, nPriority: i32) -> i32;
+    }
+    const THREAD_PRIORITY_BELOW_NORMAL: i32 = -1;
+    unsafe {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    }
 }
 
 /// 抓取/释放鼠标：拖动时把鼠标事件锁到本窗口，避免拖出岛体后误选桌面。

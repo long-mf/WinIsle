@@ -1,17 +1,17 @@
 {
-    "version": "0.1.6",
-    "notes": "WinIsle v0.1.6：待办支持行内编辑（即时保存、光标闪烁、基线对齐），修复切换行光标残留与指针闪烁。",
-    "setup": {
-        "name": "WinIsle-Setup-0.1.6.exe",
-        "url": "download/WinIsle-Setup-0.1.6.exe",
-        "size": 6109107,
-        "sha256": "97cf81937ec3408d52dc8bcd4b2583ea908fbdfa41811483163c6f4379bd758a"
-    },
-    "portable": {
-        "name": "WinIsle-0.1.6-portable.zip",
-        "url": "download/WinIsle-0.1.6-portable.zip",
-        "size": 5377436,
-        "sha256": "d2481b2e590766092ff8a556479bc24dedc396ad145e96eea6c31e8888d80fef"
-    },
-    "pub_date": "2026-11-25"
+    "version":  "0.1.61",
+    "notes":  "WinIsle v0.1.61：天气定位支持自动到区县（不再回退 IP），城市名可点击搜索并修复输入光标与返回动画；歌词获取更快（LRCLIB 快速超时/冷却），修复歌词滚动闪烁；同步若干稳定性修复。",
+    "setup":  {
+                  "name":  "WinIsle-Setup-0.1.61.exe",
+                  "url":  "download/WinIsle-Setup-0.1.61.exe",
+                  "size":  6112733,
+                  "sha256":  "4335019fe3b2885ccb084ffdd2c478e6ef61459a89553a03719e8846143dcec2"
+              },
+    "portable":  {
+                     "name":  "WinIsle-0.1.61-portable.zip",
+                     "url":  "download/WinIsle-0.1.61-portable.zip",
+                     "size":  5384146,
+                     "sha256":  "f7b68653c51c6caa4a0cccdc08cc1d48cea3de92c02ecd460e532bb2a2052580"
+                 },
+    "pub_date":  "2026-11-25"
 }

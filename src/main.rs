@@ -514,8 +514,10 @@ if (cfg.idle_face as usize) >= FACES.len() || FACE_REMOVED[cfg.idle_face as usiz
                 "+spectrum,+lyrics,-face,+clock,-weather".to_string()
             };
         }
-        //         cfg.weather_city.clear();
-        cfg.weather_city_name.clear();
+        // 手动选过城市时保留 key/名称；没有手动选择才走自动定位。
+        if cfg.weather_city.is_empty() {
+            cfg.weather_city_name.clear();
+        }
         // 天气不提供设置项：固定摄氏度，收起态固定显示图标与温度。
         cfg.weather_unit = 0;
         cfg.weather_show_temp = true;
@@ -607,6 +609,26 @@ fn set_autostart(on: bool) {
         let _ = reg_ok(&["add", key, "/v", "WinIsle", "/t", "REG_SZ", "/d", &val, "/f"]);
     } else {
         let _ = reg_ok(&["delete", key, "/v", "WinIsle", "/f"]);
+    }
+}
+
+/// 后台线程写入开机启动，避免同步调用 reg.exe 阻塞 UI 线程（“开关卡顿”根因修复）。
+static AUTOSTART_OP_RESULT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+fn spawn_set_autostart(on: bool) {
+    std::thread::spawn(move || {
+        set_autostart(on);
+        let actual = autostart_enabled();
+        AUTOSTART_OP_RESULT.store(if actual { 1 } else { 0 }, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+
+/// 后台写入完成后回填真实状态（-1 表示暂无结果）。
+fn poll_autostart_result() -> Option<bool> {
+    match AUTOSTART_OP_RESULT.swap(-1, std::sync::atomic::Ordering::SeqCst) {
+        1 => Some(true),
+        0 => Some(false),
+        _ => None,
     }
 }
 
@@ -1669,6 +1691,8 @@ struct IslandApp {
     remind_morph: f32,
     life: crate::life::LifeState,
     note: crate::note::NoteState,
+    /// 输入法（IME）是否正处于组词状态（镜像 TextEdit 的 ime_enabled 语义，用于吞掉选词回车）。
+    ime_composing: bool,
 }
 
 impl IslandApp {
@@ -1711,6 +1735,7 @@ impl IslandApp {
         let (lyr_res_tx, lyr_rx) =
             std::sync::mpsc::channel::<(String, Option<Vec<lyrics::LrcLine>>, Option<Vec<u8>>, bool)>();
         std::thread::spawn(move || {
+            crate::platform::lower_current_thread_priority();
             while let Ok((key, title, artist, dur, soda, light)) = lyr_req_rx.recv() {
                 // light=trueCDP 
                 // light=falseCDP +  +  +                // settled=true ? / / 
@@ -1961,6 +1986,7 @@ let (r, cov, settled) = if light {
             w_search_last_query: String::new(),
             life: crate::life::LifeState::load(),
             note: crate::note::NoteState::load(),
+            ime_composing: false,
             todos,
             todo_next_id,
             todo_done_seq,
@@ -3010,6 +3036,14 @@ if let Some((_, d)) = platform::netease_posdur_cached() {
                 idx = i;
             } else {
                 break;
+            }
+        }
+        // 时间轴在行边界附近抖动时，二分结果会在相邻两行之间来回跳；
+        // 当前行没有被明显越过时保持不动，避免歌词“卡着滚动一闪一闪”。
+        if self.lyr_idx_last >= 0 && (self.lyr_idx_last as usize) < self.lyr_lines.len() {
+            let prev = self.lyr_idx_last as usize;
+            if idx < prev && pos + 0.30 >= self.lyr_lines[prev].t {
+                idx = prev;
             }
         }
         Some(idx)
@@ -7107,7 +7141,22 @@ let city = match &self.w_data {
                 }
             }
         };
-        painter.text(egui::pos2(x0, y0 + 8.0), egui::Align2::LEFT_CENTER, &city, bold_font(16.0), ink);
+        let city_rect = painter.text(egui::pos2(x0, y0 + 8.0), egui::Align2::LEFT_CENTER, &city, bold_font(16.0), ink);
+        painter.text(
+            egui::pos2(city_rect.right() + 6.0, y0 + 8.0),
+            egui::Align2::LEFT_CENTER,
+            "\u{25BE}",
+            egui::FontId::proportional(9.0),
+            muted2,
+        );
+        // 定位不准时可直接点城市名纠正（保留自动定位为默认）。
+        let city_resp = ui
+            .interact(city_rect.expand2(egui::vec2(6.0, 4.0)), ui.id().with("w_city_title"), egui::Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .on_hover_text("定位不准？点击选择城市");
+        if city_resp.clicked() {
+            self.open_city_search(true);
+        }
 
         //  + 
         let refresh_hit = egui::Rect::from_min_max(egui::pos2(x1 - 80.0, y0 - 3.0), egui::pos2(x1, y0 + 21.0));
@@ -7208,6 +7257,22 @@ let city = match &self.w_data {
                 egui::FontId::proportional(13.0),
                 muted,
             );
+            if self.w_err.is_none() && self.cfg.weather_city.is_empty() {
+                let tip = "定位中…若一直停在这里，请确认 Windows「设置 → 隐私和安全性 → 位置」已开启，并允许桌面应用使用位置";
+                let g = ui.fonts(|f| {
+                    f.layout(
+                        tip.to_string(),
+                        egui::FontId::proportional(10.0),
+                        muted2,
+                        (x1 - x0).max(160.0),
+                    )
+                });
+                painter.galley(
+                    egui::pos2(rect.center().x - g.size().x * 0.5, rect.center().y + 12.0),
+                    g,
+                    muted2,
+                );
+            }
             if let Some(err) = &self.w_err {
                 let g = ui.fonts(|f| {
                     f.layout(err.clone(), egui::FontId::proportional(10.5), muted2, (x1 - x0).max(120.0))
@@ -8707,11 +8772,26 @@ fn poll_update(&mut self) {
         self.w_err = None;
         self.w_notice_until = None;
         let (tx, rx) = std::sync::mpsc::channel();
+        // 用户手动选过城市时优先用它（可纠正 IP/系统定位偏差）；否则每次自动定位。
+        let manual_key = if self.cfg.weather_city.is_empty() {
+            None
+        } else {
+            Some(self.cfg.weather_city.clone())
+        };
         std::thread::spawn(move || {
-            // 
-            let real = weather::locate()
-                .map(|(_, k)| k)
-                .unwrap_or_else(|| "101010100".to_string());
+            let real = match manual_key {
+                Some(k) => k,
+                None => match weather::locate() {
+                    Some((_, k)) => k,
+                    None => {
+                        let _ = tx.send(Err(
+                            "定位失败：请确认 Windows「设置 → 隐私和安全性 → 位置」已开启，并允许桌面应用使用位置；也可以点击城市名手动选择"
+                                .to_string(),
+                        ));
+                        return;
+                    }
+                },
+            };
             let _ = tx.send(weather::fetch(&real));
         });
         self.w_rx = Some(rx);
@@ -8854,9 +8934,14 @@ fn poll_update(&mut self) {
     }
 
     fn close_city_search(&mut self) {
+        let from_weather = self.w_city_search_from_weather;
         self.w_city_search = false;
-        if self.w_city_search_from_weather {
+        if from_weather {
+            // 从天气页进来时，返回直接回天气页；把设置页/搜索页的过渡态归零，
+            // 避免设置底板和搜索遮罩在天气页上留下淡出残影。
             self.show_settings = false;
+            self.settings_anim = 0.0;
+            self.w_city_search_anim = 0.0;
         }
         self.w_city_search_from_weather = false;
         self.w_search_need_focus = false;
@@ -8935,10 +9020,21 @@ fn poll_update(&mut self) {
             egui::StrokeKind::Inside,
         );
         let mut q = std::mem::take(&mut self.w_search_query);
+        let input_id = egui::Id::new("winisle_weather_city_input");
+        // WinIsle 主窗是 WS_EX_NOACTIVATE，winit 的 viewport focused 往往为 false；
+        // egui 在 viewport 未聚焦时不会画插入符。这里只在这块输入框绘制期间临时置 focused，
+        // 让“已聚焦但窗口不抢焦点”的场景也能看到闪烁光标（与待办/提醒输入框同一做法）。
+        let vp_before = ui.ctx().input(|i| i.focused);
+        let input_mem_foc = ui.memory(|m| m.has_focus(input_id));
+        let force_caret = !vp_before && input_mem_foc;
+        if force_caret {
+            ui.ctx().input_mut(|i| i.focused = true);
+        }
         let te = egui::TextEdit::singleline(&mut q)
             .frame(false)
-            .id(ui.id().with("w_city_input"))
-            .hint_text("城市 / 区县，例如 浦东新区")
+            .id(input_id)
+            .margin(egui::Margin::symmetric(8, 3))
+            .vertical_align(egui::Align::Center)
             .font(egui::FontId::proportional(12.0))
             .text_color(ink);
 
@@ -8950,10 +9046,22 @@ fn poll_update(&mut self) {
                 v.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
                 v.widgets.hovered.bg_fill = egui::Color32::TRANSPARENT;
                 v.widgets.active.bg_fill = egui::Color32::TRANSPARENT;
-                ui.put(input_r.shrink2(egui::vec2(8.0, 3.0)), te)
+                v.selection.bg_fill = egui::Color32::from_rgba_unmultiplied(52, 211, 153, 56);
+                v.selection.stroke = egui::Stroke::new(1.0, ink);
+                v.text_cursor = egui::style::TextCursorStyle {
+                    stroke: egui::Stroke::new(1.6, egui::Color32::from_rgba_unmultiplied(233, 236, 242, a.max(200))),
+                    ..Default::default()
+                };
+                ui.put(input_r, te)
             })
             .inner;
+        if force_caret {
+            ui.ctx().input_mut(|i| i.focused = vp_before);
+        }
         self.w_search_query = q;
+        if ui.rect_contains_pointer(input_r) {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+        }
         if self.w_search_need_focus && self.w_search_focus_tries > 0 {
             if !tresp.has_focus() {
                 tresp.request_focus();
@@ -9494,8 +9602,9 @@ if slots.iter().enumerate().any(|(i, v)| (v - i as f32).abs() > 0.001) {
         {
             let trect = tg(y);
             if let Some(v) = Self::draw_toggle(ui, painter, trect, self.cfg.autostart, ui.id().with("tg_autostart"), accent, a, true) {
-                set_autostart(v);
-                self.cfg.autostart = autostart_enabled();
+                // 立即乐观更新，让开关动画即时响应；注册表写入放后台线程，避免同步 reg.exe 阻塞 UI。
+                self.cfg.autostart = v;
+                spawn_set_autostart(v);
                 changed = true;
             }
         }
@@ -10105,6 +10214,92 @@ if let Ok(v) = std::env::var("WINISLE_IDLE_FACE") {
         // [FIX] egui request_repaint_after  delay input.predicted_dt
         //  egui context.rs:187-190eframe  predicted_dt       // 1/60s6.67msegui input.rs:94request_repaint_after(16ms)         // 16-16.67 0  GUI 220fps 1        // predicted_dt delay
         ctx.input_mut(|i| i.predicted_dt = 0.0);
+        // ── 输入法修复 ──────────────────────────────────────────────
+        // 中文/英文输入法用「回车」选词时，egui 0.31 的 TextEdit 会把同一帧的回车当成
+        // 换行（多行框）或提交失焦（单行框）。这里镜像 TextEdit 的 ime_enabled 语义：
+        // 组词期间（含「选词提交」那一帧）把本帧的 Enter 键事件吞掉，交由输入法完成选词。
+        {
+            let (ime_start, ime_commit, ime_disabled) = ctx.input(|i| {
+                let mut start = false;
+                let mut commit = false;
+                let mut disabled = false;
+                for e in &i.events {
+                    if let egui::Event::Ime(ie) = e {
+                        match ie {
+                            egui::ImeEvent::Enabled | egui::ImeEvent::Preedit(_) => start = true,
+                            egui::ImeEvent::Commit(_) => commit = true,
+                            egui::ImeEvent::Disabled => disabled = true,
+                        }
+                    }
+                }
+                (start, commit, disabled)
+            });
+            let composing_at_entry = self.ime_composing;
+            if !ctx.input(|i| i.focused) {
+                self.ime_composing = false;
+            } else {
+                if ime_disabled {
+                    self.ime_composing = false;
+                }
+                if ime_start {
+                    self.ime_composing = true;
+                }
+                if ime_commit {
+                    self.ime_composing = false;
+                }
+            }
+            // 组词中 / 刚提交（含窗口过程观测到的 IME 活动）时，吞掉本帧 Enter，交给输入法选词。
+            let ime_strip = composing_at_entry
+                || crate::platform::ime_composing()
+                || crate::platform::ime_recent(150);
+            if ime_strip {
+                ctx.input_mut(|i| {
+                    i.events.retain(|e| {
+                        !matches!(
+                            e,
+                            egui::Event::Key {
+                                key: egui::Key::Enter,
+                                pressed: true,
+                                ..
+                            }
+                        )
+                    })
+                });
+            }
+        }
+        // 自测（WINISLE_PASTE_SELFTEST=1）：聚焦后向剪贴板写入文本并触发一次粘贴，用于离屏核对粘贴链路。
+        if std::env::var("WINISLE_PASTE_SELFTEST").is_ok() {
+            static PH_ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !PH_ONCE.load(std::sync::atomic::Ordering::SeqCst) && ctx.memory(|m| m.focused().is_some()) {
+                PH_ONCE.store(true, std::sync::atomic::Ordering::SeqCst);
+                if let Ok(mut cb) = arboard::Clipboard::new() {
+                    let _ = cb.set_text("PASTE_OK_12345");
+                }
+                platform::request_paste_text_for_test();
+                ctx.request_repaint();
+            }
+        }
+        // 剪贴板文本粘贴兜底：egui-winit 有时取不到文本剪贴板、不产生 Paste 事件，
+        // 这里在窗口过程标记的 Ctrl+V 意图下自行读取并注入 egui::Event::Paste（已有则跳过，避免重复）。
+        if platform::take_paste_text_req() {
+            let already = ctx.input(|i| i.events.iter().any(|ev| matches!(ev, egui::Event::Paste(_))));
+            let focused = ctx.memory(|m| m.focused().is_some());
+            if !already && focused {
+                if let Ok(mut cb) = arboard::Clipboard::new() {
+                    if let Ok(txt) = cb.get_text() {
+                        if !txt.is_empty() {
+                            ctx.input_mut(|i| i.events.push(egui::Event::Paste(txt)));
+                        }
+                    }
+                }
+            }
+        }
+        // 开机启动后台写入结果回填（校正开关真实状态）
+        if let Some(actual) = poll_autostart_result() {
+            if self.cfg.autostart != actual {
+                self.cfg.autostart = actual;
+            }
+        }
         self.perf_region_ms = 0.0;
         self.perf_netease_ms = 0.0;
         self.poll_update();
@@ -10279,7 +10474,7 @@ let smtc_has_title = self.from_smtc && !self.music.title.is_empty();
             self.ui_playing = !demo_paused;
         }
         // SMTC  Position /       // positionhaspos=true         // /       // 
-if self.music.has_position && self.music.position > 0.0 {
+if !self.app_is_soda() && self.music.has_position && self.music.position > 0.0 {
             let rep = self.music.position;
             let prev = self.smtc_rep_pos;
             let rep_changed = (rep - prev).abs() > 0.05;
@@ -10641,6 +10836,14 @@ if self.app_is_soda() {
                     // 往往就在 DOM 进度条上，而 self.current_pos() 可能还停在上一拍）。
                     let pr = crate::cdp_lyric::fetch_progress(dur);
                     let media_hint_pos = pr.map(|(p, _, _)| p).unwrap_or(hint_pos);
+                    // 关键：媒体元素必须用"这一拍刚从 DOM 进度条读到的真实总长"来匹配。
+                    // 试听/换歌时 self.music.duration 与 trial 元数据都可能是上一首的陈旧值（实测 232s vs 实际 190s），
+                    // 旧代码用它当 hint 会把真正在播的 194s 元素全部筛掉，于是每次轮询都退回 5 秒的 queryObjects 全扫，
+                    // 把播放态和进度一起冻住——正是"只有换歌才恢复"的来源。这里用 DOM 总长覆盖 hint。
+                    let media_hint_dur = match pr {
+                        Some((_, t, _)) if t > 20.0 => t,
+                        _ => media_hint_dur,
+                    };
                     // 位置源适配：汽水优先读播放器内核的真实媒体时钟（audio/video.currentTime），
                     // 它连续、精确，没有 DOM 进度条 1 秒一跳、滞后 0.75–1.7 秒的问题。
                     // 只有在读不到媒体元素时才回退到旧的 DOM 进度 + 播放态。
@@ -10674,7 +10877,6 @@ let a = m.track_name.trim();
                         }
                     }
                     let prev_pl = self.soda_playing;
-                    let mut force_sync = false;
                     // 3 ?
                     // ?
 let pause_pending = self
@@ -10683,7 +10885,7 @@ let pause_pending = self
                         .unwrap_or(false);
                     if let Some(p) = pl {
                         if prev_pl != Some(p) {
-                            force_sync = true; // "播��/暂停切换时精硬?齐一"
+                            // 不做硬同步：播放态翻转时保留连续时钟，避免把进展拉回陈旧读数
                             }
                         self.soda_playing = Some(p);
                         //  music.playing UI /
@@ -10770,7 +10972,9 @@ let full = if self.soda_full_dur > 1.0 {
                         if self.soda_playing == Some(false) {
                             // 
                             // 2:31 2:30:30/2:31 
-self.spos = p;
+                            let pc = self.current_pos();
+                            // 暂停时只冻结当前位置，不把迟到/陈旧的 DOM 读数硬拽回来（超过 1.5s 视为用户拖动 seek）。
+                            self.spos = if (p - pc).abs() > 1.5 { p } else { pc };
                             self.spos_at = Instant::now();
                             self.spos_valid = true;
                             self.pause_pending_at = None;
@@ -10782,7 +10986,7 @@ self.spos = p;
                             self.spos = p_now;
                             self.spos_at = Instant::now();
                             self.spos_valid = true;
-                        } else if force_sync || diff.abs() > 2.0 {
+                        } else if diff.abs() > 2.0 {
                             // 播放态切换 / 大偏差直接用新值硬对齐
 self.spos = p_now;
                             self.spos_at = Instant::now();
@@ -11064,8 +11268,14 @@ if !self.lyr_settled
                 let valid_prev =
                     prev >= 0 && (prev as usize) < self.lyr_lines.len() && cur_idx >= 0;
                 if valid_prev {
-                    self.lyr_anim_at = Some(Instant::now());
-                    self.lyr_anim_from = Some(prev as usize);
+                    if cur_idx > prev {
+                        self.lyr_anim_at = Some(Instant::now());
+                        self.lyr_anim_from = Some(prev as usize);
+                    } else {
+                        // 回退（seek 回到上一行/重播）不播滚动动画，避免旧行来回闪。
+                        self.lyr_anim_at = None;
+                        self.lyr_anim_from = None;
+                    }
                 } else {
                     self.lyr_anim_at = None;
                     self.lyr_anim_from = None;

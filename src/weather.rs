@@ -612,6 +612,20 @@ fn fetch_wttr(lat: f64, lon: f64) -> Option<Weather> {
 }
 
 /// 两点间球面距离（公里，haversine）。
+/// 按经纬度找最近的内置城市（用于系统定位成功但区县反查失败时的兜底）。
+fn nearest_builtin(lat: f64, lon: f64) -> Option<(String, String)> {
+    let mut best: Option<(f64, &City)> = None;
+    for c in CITIES {
+        if let Some((clat, clon)) = city_coords(c.key) {
+            let d = haversine(lat, lon, clat, clon);
+            if best.map_or(true, |(bd, _)| d < bd) {
+                best = Some((d, c));
+            }
+        }
+    }
+    best.map(|(_, c)| (c.name.to_string(), c.key.to_string()))
+}
+
 fn haversine(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let r = 6371.0_f64;
     let dlat = (lat2 - lat1).to_radians();
@@ -707,6 +721,12 @@ pub fn locate() -> Option<(String, String)> {
                 return Some((hit.name, hit.key));
             }
         }
+        // 系统定位已经拿到经纬度时，绝不回退到 IP 定位（IP 可能相差几百公里）。
+        // 区县反查失败就按经纬度落到最近的内置城市，精度仍远高于 IP。
+        if let Some(hit) = nearest_builtin(lat, lon) {
+            return Some(hit);
+        }
+        return Some(("当前位置".to_string(), format!("geo:{:.5},{:.5}", lat, lon)));
     }
 
     let agent = ureq::AgentBuilder::new()
@@ -745,17 +765,8 @@ pub fn locate() -> Option<(String, String)> {
     }
     // 3) 兜底：离经纬度最近的内置城市
     if let (Some(la), Some(lo)) = (lat, lon) {
-        let mut best: Option<(f64, &City)> = None;
-        for c in CITIES {
-            if let Some((clat, clon)) = city_coords(c.key) {
-                let d = haversine(la, lo, clat, clon);
-                if best.map_or(true, |(bd, _)| d < bd) {
-                    best = Some((d, c));
-                }
-            }
-        }
-        if let Some((_, c)) = best {
-            return Some((c.name.to_string(), c.key.to_string()));
+        if let Some(hit) = nearest_builtin(la, lo) {
+            return Some(hit);
         }
     }
     None

@@ -216,6 +216,39 @@ fn get_json(url: &str) -> Option<serde_json::Value> {
     get_json_with(url, "https://music.163.com/")
 }
 
+/// 快速请求：LRCLIB 在部分网络下握手/响应要 5–10 秒，不能让它拖慢整首歌的取词。
+/// 只发一次，最多等 2.5 秒；失败由调用方做 10 分钟冷却。
+fn get_json_fast(url: &str, referer: &str) -> Option<serde_json::Value> {
+    let r = ureq::get(url)
+        .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .set("Referer", referer)
+        .timeout(Duration::from_millis(2500))
+        .call();
+    match r {
+        Ok(resp) => resp.into_json::<serde_json::Value>().ok(),
+        Err(e) => {
+            dlog(&format!("GET fast err {} -> {}", url, e));
+            None
+        }
+    }
+}
+
+/// LRCLIB 连续失败时临时跳过，避免每首新歌都白等 3 秒。
+static LRCLIB_DOWN_UNTIL: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+fn lrclib_available() -> bool {
+    let g = LRCLIB_DOWN_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
+    match *g {
+        Some(t) => t.elapsed() >= Duration::from_secs(600),
+        None => true,
+    }
+}
+
+fn lrclib_mark_down() {
+    let mut g = LRCLIB_DOWN_UNTIL.lock().unwrap_or_else(|e| e.into_inner());
+    *g = Some(std::time::Instant::now());
+}
+
 fn get_bytes(url: &str) -> Option<Vec<u8>> {
     for attempt in 0..3 {
         let r = ureq::get(url)
@@ -567,11 +600,21 @@ fn lrclib_fetch(title: &str, artist: &str, expected_dur: f64) -> Option<Vec<LrcL
     if ctitle.is_empty() {
         return None;
     }
+    if !lrclib_available() {
+        dlog("lrclib skipped (recent timeout)");
+        return None;
+    }
     let mut url = format!("https://lrclib.net/api/search?track_name={}", pct_encode(&ctitle));
     if !artist.trim().is_empty() {
         url.push_str(&format!("&artist_name={}", pct_encode(artist.trim())));
     }
-    let v = get_json_with(&url, "https://lrclib.net/")?;
+    let v = match get_json_fast(&url, "https://lrclib.net/") {
+        Some(v) => v,
+        None => {
+            lrclib_mark_down();
+            return None;
+        }
+    };
     let arr = v.as_array()?;
     let nt = norm_alpha(&ctitle);
     let na = norm_alpha(artist);

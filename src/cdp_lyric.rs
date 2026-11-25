@@ -426,6 +426,20 @@ pub fn fetch_media_clock(hint_pos: f64, hint_dur: f64) -> Option<SodaMediaClock>
     let wsurl = page_ws_url()?;
     let mut s = ws_connect(&wsurl)?;
     // queryObjects 在对象多时需要数秒（实测 ~6.6s）才能返回，默认 2.5s 读超时会误判失败。
+    // 汽水进程里同时存在几百个 HTMLMediaElement（实测 501 个），Runtime.queryObjects 单次约 5 秒；
+    // 若当前没有正在推进的元素、每轮都重扫，会把渲染线程和同进程的其它 CDP 轮询一起饿死。
+    // 给"全量扫描"加冷却：扫过一轮后 6 秒内不再重扫，直接回退 DOM 进度（DOM 进度本身可用）。
+    static LAST_FULL: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    if let Ok(g) = LAST_FULL.lock() {
+        if let Some(t) = *g {
+            if t.elapsed() < std::time::Duration::from_secs(6) {
+                return None;
+            }
+        }
+    }
+    if let Ok(mut g) = LAST_FULL.lock() {
+        *g = Some(std::time::Instant::now());
+    }
     let _ = s.set_read_timeout(Some(std::time::Duration::from_millis(15000)));
     let _ = s.set_write_timeout(Some(std::time::Duration::from_millis(5000)));
     // 先清空页面缓存的 console 条目，再 enable；否则 Runtime.enable 会重放上千条
@@ -498,6 +512,9 @@ const EXPR: &str = r#"(()=>{
  const el=document.querySelector('#app');
  const app=el&&el.__vue_app__;
  if(!app) return {ok:false,why:'noapp',vis:document.visibilityState,focus:document.hasFocus()};
+ // 只有播放页挂载 LyricsView。歌单/场景页的 Vue 树巨大，深遍历会拖住渲染线程并把进度轮询饿死，
+ // 因此非播放页直接返回，绝不在歌单页做 600 层 vnode 行走。
+ const rh=(location.hash||''); if(!(rh==='#/player'||rh.startsWith('#/player?'))) return {ok:false,why:'notplayer',vis:document.visibilityState,focus:document.hasFocus()};
  const root=app._container&&app._container._vnode;
  const seen=new Set(); const list=[];
  (function walk(v,d){
@@ -702,8 +719,10 @@ pub fn fetch_play_state() -> Option<(bool, f64, f64)> {
         if(pct<0){const dot=bp.querySelector('.slider-dot');
           if(dot){const w=(dot.style.left||'').replace('%',''); const f=parseFloat(w); if(!isNaN(f)) pct=f;}}
         const btn=bp.querySelector('.controls.center .button.large');
-        let playing=false;
-        if(btn){const p=btn.querySelector('path'); const d=p?(p.getAttribute('d')||''):''; playing=/^M9\s*7\.8/.test(d);}
+        // 找不到大播放键时，不能把"未知"当成"暂停"：歌单/场景页切换瞬间按钮可能不在 DOM，
+        // 误判为暂停会让上层把播放态冻结、进度条与歌词定住。这里明确返回 ok:false 交给上层保持原状态。
+        if(!btn) return {ok:false, why:'nobtn'};
+        const p=btn.querySelector('path'); const d=p?(p.getAttribute('d')||''):''; const playing=/^M9\s*7\.8/.test(d);
         const cur = (dur>0 && pct>=0)? dur*pct/100.0 : -1;
         return {ok:true, dur:dur, cur:cur, playing:playing};
       }catch(e){return {ok:false};}
