@@ -1,17 +1,17 @@
 {
-    "version": "0.1.7",
-    "notes": "WinIsle v0.1.7：待办支持行内编辑（即时保存、光标闪烁、基线对齐），修复切换行光标残留与指针闪烁。",
+    "version": "0.1.6",
+    "notes": "WinIsle v0.1.6：待办支持行内编辑（即时保存、光标闪烁、基线对齐），修复切换行光标残留与指针闪烁。",
     "setup": {
-        "name": "WinIsle-Setup-0.1.7.exe",
-        "url": "download/WinIsle-Setup-0.1.7.exe",
-        "size": 6109177,
-        "sha256": "9d428c1f6204c9812c33ede423fb94e02d9fae89f400e2862517f1fe355c29e3"
+        "name": "WinIsle-Setup-0.1.6.exe",
+        "url": "download/WinIsle-Setup-0.1.6.exe",
+        "size": 6109107,
+        "sha256": "97cf81937ec3408d52dc8bcd4b2583ea908fbdfa41811483163c6f4379bd758a"
     },
     "portable": {
-        "name": "WinIsle-0.1.7-portable.zip",
-        "url": "download/WinIsle-0.1.7-portable.zip",
-        "size": 5377478,
-        "sha256": "1b2906f66bb46ac49d9b750fb91cc7dc8afbe566a56d66ab3057605a4224cbf5"
+        "name": "WinIsle-0.1.6-portable.zip",
+        "url": "download/WinIsle-0.1.6-portable.zip",
+        "size": 5377436,
+        "sha256": "d2481b2e590766092ff8a556479bc24dedc396ad145e96eea6c31e8888d80fef"
     },
     "pub_date": "2026-11-25"
 }
