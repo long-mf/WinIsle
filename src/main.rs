@@ -7286,7 +7286,7 @@ let city = match &self.w_data {
                 painter.text(
                     egui::pos2(rect.center().x, rect.center().y + 14.0 + eh),
                     egui::Align2::CENTER_CENTER,
-                    "点击右上「重试。?",
+                    "点击右上角「↻」重试",
                     egui::FontId::proportional(10.0),
                     muted2,
                 );
@@ -7315,7 +7315,7 @@ let city = match &self.w_data {
         painter.text(
             egui::pos2(x0 + 60.0, hero_top + 51.0),
             egui::Align2::LEFT_CENTER,
-            format!("昨{:.0}°  今{:.0}°", weather::conv_temp(hi as f32, f), weather::conv_temp(lo as f32, f)),
+            format!("最高 {:.0}°  最低 {:.0}°", weather::conv_temp(hi as f32, f), weather::conv_temp(lo as f32, f)),
             egui::FontId::proportional(11.0),
             muted2,
         );

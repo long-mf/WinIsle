@@ -1,17 +1,17 @@
 {
-    "version":  "0.1.61",
-    "notes":  "WinIsle v0.1.61：天气定位支持自动到区县（不再回退 IP），城市名可点击搜索并修复输入光标与返回动画；歌词获取更快（LRCLIB 快速超时/冷却），修复歌词滚动闪烁；同步若干稳定性修复。",
+    "version":  "0.1.62",
+    "notes":  "WinIsle v0.1.62：修复天气详情中今日高低温文案（原误显示为「昨/今」，现为「最高/最低」）。",
     "setup":  {
-                  "name":  "WinIsle-Setup-0.1.61.exe",
-                  "url":  "download/WinIsle-Setup-0.1.61.exe",
-                  "size":  6112733,
-                  "sha256":  "4335019fe3b2885ccb084ffdd2c478e6ef61459a89553a03719e8846143dcec2"
+                  "name":  "WinIsle-Setup-0.1.62.exe",
+                  "url":  "download/WinIsle-Setup-0.1.62.exe",
+                  "size":  6112682,
+                  "sha256":  "7112d6bfcb36f2f3ecb34e96cf356739dd508f171067bf5037a005a41e2bfe93"
               },
     "portable":  {
-                     "name":  "WinIsle-0.1.61-portable.zip",
-                     "url":  "download/WinIsle-0.1.61-portable.zip",
-                     "size":  5384146,
-                     "sha256":  "f7b68653c51c6caa4a0cccdc08cc1d48cea3de92c02ecd460e532bb2a2052580"
+                     "name":  "WinIsle-0.1.62-portable.zip",
+                     "url":  "download/WinIsle-0.1.62-portable.zip",
+                     "size":  5384190,
+                     "sha256":  "cda72218ab6e2a732a39e525453a60749f061a0361c3c1e523655d715bbf6a13"
                  },
     "pub_date":  "2026-11-25"
 }
