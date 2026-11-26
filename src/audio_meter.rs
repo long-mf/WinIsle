@@ -6,7 +6,7 @@
 //!
 //! 两个后台线程都只写原子变量，绘制线程直接读取；拿不到数据时返回 0。
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 static LEVEL: AtomicU32 = AtomicU32::new(0);
 
@@ -16,6 +16,15 @@ const ZERO: AtomicU32 = AtomicU32::new(0);
 static BANDS: [AtomicU32; NBANDS] = [ZERO; NBANDS];
 /// 低频“鼓点”包络（0~1，快起快落），用于让整体柱子跟着鼓点弹跳。
 static KICK: AtomicU32 = AtomicU32::new(0);
+
+/// UI 每帧上报「当前是否应有声音」（音乐正在播放）。采集线程据此判定
+/// 「本应有声音却长时间收不到环回数据包」= 采集卡死 → 自我重建；真正暂停时不触发，保持空闲省电。
+static EXPECT_AUDIO: AtomicBool = AtomicBool::new(false);
+
+/// 由主线程每帧调用：告知音频线程当前是否处于“应该在出声”的状态。
+pub fn set_expected_playing(playing: bool) {
+    EXPECT_AUDIO.store(playing, Ordering::Relaxed);
+}
 
 /// 当前音量峰值（0.0~1.0，已做轻度平滑）。
 pub fn level() -> f32 {
@@ -204,6 +213,8 @@ unsafe fn bands_loop() {
             }
         };
         let ch = ch.max(1) as usize;
+        // 本连接最后一次成功收到数据包的时刻（用于卡死自愈判定）。
+        let mut last_pkt = std::time::Instant::now();
 
         // 频段边界（对数，低→高），随采样率确定
         let fmin = 40f32;
@@ -299,13 +310,17 @@ unsafe fn bands_loop() {
             let now = std::time::Instant::now();
             let dt = (now - last_t).as_secs_f32().clamp(0.001, 0.10);
             last_t = now;
+            if got_any {
+                last_pkt = now;
+            }
+            let starved = now.duration_since(last_pkt).as_secs_f32();
 
-            if mono.len() > NFFT * 4 {
+            if got_any && mono.len() > NFFT * 4 {
                 let drop = mono.len() - NFFT * 2;
                 mono.drain(0..drop);
             }
 
-            if mono.len() >= NFFT {
+            if got_any && mono.len() >= NFFT {
                 let mut re = [0f32; NFFT];
                 let mut im = [0f32; NFFT];
                 let start = mono.len() - NFFT;
@@ -348,6 +363,34 @@ unsafe fn bands_loop() {
                 let ka = if kick_target > kick_env { k_up } else { k_dn };
                 kick_env += (kick_target - kick_env) * ka;
                 KICK.store(kick_env.to_bits(), Ordering::Relaxed);
+            } else if starved > 0.06 {
+                // 没有新音频数据（暂停 / 端点空闲 / 采集暂时无包）：让频谱自然回落到 0，
+                // 而不是拿 mono 里的旧样本反复算 FFT、把频谱冻结在最后一帧的值上。
+                mono.clear(); // 丢弃陈旧样本，避免恢复播放瞬间把旧样本拼进第一帧 FFT
+                let a_sil = 1.0 - (-dt / 0.12_f32).exp();
+                for b in 0..NBANDS {
+                    smooth[b] -= smooth[b] * a_sil;
+                    avg[b] += (smooth[b] - avg[b]) * a_sil;
+                    let val = (smooth[b] / (avg[b] * 2.2 + 0.003)).clamp(0.0, 1.0).powf(0.8);
+                    BANDS[b].store(val.to_bits(), Ordering::Relaxed);
+                }
+                let k_sil = 1.0 - (-dt / 0.08_f32).exp();
+                kick_env -= kick_env * k_sil;
+                KICK.store(kick_env.to_bits(), Ordering::Relaxed);
+            }
+
+            // 卡死自愈：环回采集在渲染端点长时间静默/空闲后可能不再吐包（GetNextPacketSize 恒 0，
+            // 不返回错误，也不会走 reconnect 分支），若只等新包就会永久冻结。此时 UI 仍在正常判定
+            // is_playing=true。故：本应有声音却长时间收不到包，或峰值电平明显有声音却收不到包，
+            // 就主动重建采集客户端（Stop→重新 Initialize/Start），避免只能重启整个程序。
+            // 真静音时 expect=false 且电平≈0，不触发重建、不耗电。
+            let expect_audio = EXPECT_AUDIO.load(Ordering::Relaxed);
+            let audible = level() > 0.03;
+            if (starved > 0.8 && expect_audio) || (starved > 3.0 && audible) {
+                reconnect = true;
+            }
+            if reconnect {
+                break;
             }
 
             std::thread::sleep(std::time::Duration::from_millis(5));

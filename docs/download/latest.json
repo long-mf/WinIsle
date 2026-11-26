@@ -1,17 +1,17 @@
 {
-    "version": "0.1.64",
-    "notes": "WinIsle v0.1.64：音乐页歌名/歌手超长时改为循环走马灯，字号保持不变。",
+    "version": "0.1.65",
+    "notes": "WinIsle v0.1.65：修复音乐页水波频谱长时间静音后冻结、恢复播放/切歌都不再跳动、只能重启的问题。",
     "setup": {
-        "name": "WinIsle-Setup-0.1.64.exe",
-        "url": "download/WinIsle-Setup-0.1.64.exe",
-        "size": 6113170,
-        "sha256": "7bc61241736063d42035bb966af505a26101a8dbf4874978ca77348715c4e612"
+        "name": "WinIsle-Setup-0.1.65.exe",
+        "url": "download/WinIsle-Setup-0.1.65.exe",
+        "size": 6113614,
+        "sha256": "515c0b17701153978c9f5872a4063f91cf8e78eb8a062577fe373c44a61f5ca7"
     },
     "portable": {
-        "name": "WinIsle-0.1.64-portable.zip",
-        "url": "download/WinIsle-0.1.64-portable.zip",
-        "size": 5384119,
-        "sha256": "7230327460164482ed36b58d92528b2920130d50350f62a8ccb16fa6920ff4f4"
+        "name": "WinIsle-0.1.65-portable.zip",
+        "url": "download/WinIsle-0.1.65-portable.zip",
+        "size": 5384783,
+        "sha256": "5823ef88f1ae45fe5b2b2e0b9cc09d0063113bb9c5687031b47abcc77f79a64b"
     },
-    "pub_date": "2026-11-25"
+    "pub_date": "2026-11-26"
 }

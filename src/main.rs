@@ -10706,6 +10706,10 @@ static T0: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
             //  music_amt  0fps            // amt false16.7fps CPU
             self.music_motion = (self.music_amt - target_amt).abs() >= 0.004
                 || (self.music_amt > 0.01 && self.is_playing());
+            // 告知音频采集线程「当前是否应有声音」：用于识别环回采集在长时间静音后不再吐包的卡死
+            // 并自愈重建（见 audio_meter::set_expected_playing）。真正暂停时 is_playing=false，
+            // 不会触发重建，保持空闲省电。
+            crate::audio_meter::set_expected_playing(music_present && self.is_playing());
             // 
 if std::env::var("WINISLE_FACE").is_ok() {
                 self.music_amt = 0.0;
