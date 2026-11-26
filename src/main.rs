@@ -1385,6 +1385,8 @@ struct IslandApp {
     soda_trial_active: bool,
     ///  DOM 
     soda_trial_hint: bool,
+    /// 试听提示淡入动画（0..1）：仅用于歌词区“汽水试听片段”友好提示的淡入过渡
+    soda_hint_anim: f32,
     /// DOM  1    /// 
     soda_last_p: f64,
     /// 
@@ -1867,6 +1869,7 @@ let (r, cov, settled) = if light {
             soda_clip_dur: 0.0,
             soda_trial_active: false,
             soda_trial_hint: false,
+            soda_hint_anim: 0.0,
             soda_last_p: -1.0,
             lyr_retry_at: Instant::now() - Duration::from_secs(3600),
             lyr_retry_n: 0,
@@ -5299,6 +5302,31 @@ self.spos = cp;
         // ----------  ----------
         let instrumental = lyrics::is_instrumental(&self.lyr_lines);
         let cur = if instrumental { None } else { self.cur_lyric_idx() };
+        // 汽水/网易云等平台的 VIP 试听片段：当这首歌没有可展示的歌词时，给一句友好提示，
+        // 避免“歌词加载中…/暂无歌词”让人误以为歌词坏了或卡住。仅在该平台确实处于试听片段时触发，
+        // 文案按实际平台名显示（汽水音乐/网易云音乐/QQ音乐…），不会都写成“汽水”。
+        let trial_ui_soda = self.app_is_soda()
+            && (self.soda_trial_active
+                || (self.soda_trial_hint
+                    && self.soda_clip_dur >= 5.0
+                    && self.soda_full_dur > self.soda_clip_dur + 20.0));
+        // 网易云等平台：platform.rs 已从进程内存日志的 freeTrialInfo 探测出片段起点，
+        // trial_start>0.5 即说明当前是受限试听片段。
+        let trial_ui_other = !self.app_is_soda() && self.trial_start as f64 > 0.5;
+        let show_trial_hint = (trial_ui_soda || trial_ui_other) && cur.is_none();
+        let trial_plat = src_label(&self.music.app_id);
+        let trial_secs: i64 = if trial_ui_soda && self.soda_clip_dur >= 5.0 {
+            self.soda_clip_dur.round() as i64
+        } else {
+            0
+        };
+        // 淡入过渡（约 180ms），配色沿用歌词区薄荷绿，与内容区融合。
+        let hint_dt = ui.input(|i| i.stable_dt).clamp(0.001, 0.05);
+        let hint_tgt = if show_trial_hint { 1.0 } else { 0.0 };
+        self.soda_hint_anim += (hint_tgt - self.soda_hint_anim) * (1.0 - (-hint_dt / 0.08).exp());
+        if self.soda_hint_anim < 0.001 {
+            self.soda_hint_anim = 0.0;
+        }
         let lfont = self.cfg.lyric_font.clamp(10.0, 20.0);
         let line_font = egui::FontId::proportional(lfont);
         let row_h = 22.0f32;
@@ -5415,6 +5443,44 @@ let clip = painter.with_clip_rect(lyric_rect);
 let ilt = (self.lyric_time() - self.lyr_lines[i].t).max(0.0);
                     self.draw_lyric_line(&clip, lrect, &self.lyr_lines[i].text, line_font.clone(), fc, fc, 0.0, ilt, false, false);
                 }
+            }
+        } else if show_trial_hint {
+            // 试听片段友好提示（带淡入）。纯音乐则保留“纯音乐，请欣赏”，下面补一行试听说明。
+            let ha = (a as f32 * self.soda_hint_anim.clamp(0.0, 1.0)) as u8;
+            let title = if trial_secs > 0 {
+                format!("{}试听片段 · 仅 {} 秒", trial_plat, trial_secs)
+            } else {
+                format!("{}试听片段", trial_plat)
+            };
+            let sub = if trial_ui_soda {
+                "开通会员可畅听完整版与逐字歌词"
+            } else {
+                "开通会员可畅听完整版"
+            };
+            if instrumental {
+                self.draw_instrumental_art(painter, lyric_rect, center_y - 10.0, ha);
+                painter.text(
+                    egui::pos2((lx0 + cx1) * 0.5, center_y + 16.0),
+                    egui::Align2::CENTER_CENTER,
+                    title.as_str(),
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::from_rgba_unmultiplied(148, 172, 160, ha),
+                );
+            } else {
+                painter.text(
+                    egui::pos2((lx0 + cx1) * 0.5, center_y - 9.0),
+                    egui::Align2::CENTER_CENTER,
+                    title.as_str(),
+                    egui::FontId::proportional(13.0),
+                    egui::Color32::from_rgba_unmultiplied(150, 205, 175, ha),
+                );
+                painter.text(
+                    egui::pos2((lx0 + cx1) * 0.5, center_y + 11.0),
+                    egui::Align2::CENTER_CENTER,
+                    sub,
+                    egui::FontId::proportional(12.0),
+                    egui::Color32::from_rgba_unmultiplied(130, 150, 146, ha),
+                );
             }
         } else if instrumental {
             //
@@ -10872,17 +10938,20 @@ if self.app_is_soda() {
                     // 之前那首完整歌曲的旧元素当成当前曲目（时长差 3 秒以上才排除），
                     // 于是试听时进度/歌词跟着旧元素走、循环后也不回到片段开头。
                     let tm = crate::cdp_lyric::fetch_trial_meta();
-                    let media_hint_dur = match &tm {
-                        Some(t)
-                            if t.limited_free
-                                && t.clip_duration >= 10.0
-                                && t.full_duration > t.clip_duration * 1.05 =>
+                    // 试听片段：媒体元素时长是“片段长度”（约 30s），而 DOM 进度条/整曲元数据
+                    // 报的是整曲时长。必须把“片段时长”作为首选匹配时长，否则真实在播的片段元素
+                    // 会因时长不符被筛掉，反而选中某个暂停的整曲预加载元素 —— 表现为切到试听歌后
+                    // 播放键显示“暂停”、进度/歌词一起冻住（正是“试听歌播放键会暂停”的根因）。
+                    let clip_hint = match &tm {
+                        Some(t) if t.limited_free
+                            && t.clip_duration >= 10.0
+                            && t.full_duration > t.clip_duration * 1.05 =>
                         {
-                            t.clip_duration
+                            Some(t.clip_duration)
                         }
-                        // 汽水曲目的真实时长以它自己的 track/DOM 为准。SMTC/Soda 偶发把
-                        // 当前曲目误报成某个 60s 预加载元素的时长；若把 60 当成 hint，
-                        // 会把真正 195s 的当前媒体元素过滤掉，选中旧元素并锁死成 1:00。
+                        _ => None,
+                    };
+                    let full_hint = match &tm {
                         Some(t) if t.full_duration > 20.0 => t.full_duration,
                         _ => hint_dur,
                     };
@@ -10892,18 +10961,21 @@ if self.app_is_soda() {
                     // 往往就在 DOM 进度条上，而 self.current_pos() 可能还停在上一拍）。
                     let pr = crate::cdp_lyric::fetch_progress(dur);
                     let media_hint_pos = pr.map(|(p, _, _)| p).unwrap_or(hint_pos);
-                    // 关键：媒体元素必须用"这一拍刚从 DOM 进度条读到的真实总长"来匹配。
-                    // 试听/换歌时 self.music.duration 与 trial 元数据都可能是上一首的陈旧值（实测 232s vs 实际 190s），
-                    // 旧代码用它当 hint 会把真正在播的 194s 元素全部筛掉，于是每次轮询都退回 5 秒的 queryObjects 全扫，
-                    // 把播放态和进度一起冻住——正是"只有换歌才恢复"的来源。这里用 DOM 总长覆盖 hint。
-                    let media_hint_dur = match pr {
-                        Some((_, t, _)) if t > 20.0 => t,
-                        _ => media_hint_dur,
+                    // DOM 进度条的总时长通常更可靠（可修正陈旧元数据），但试听时它以“整曲时长”
+                    // 显示，会盖掉片段时长；故只在非试听（无片段提示）时才用它覆盖首选时长。
+                    let dom_full = match pr {
+                        Some((_, t, _)) if t > 20.0 => Some(t),
+                        _ => None,
+                    };
+                    let (media_hint_dur, alt_dur) = match clip_hint {
+                        // 试听：主匹配片段时长；备选整曲时长（兼容个别以整曲文件截取片段的情况）
+                        Some(c) => (c, dom_full.unwrap_or(full_hint)),
+                        None => (dom_full.unwrap_or(full_hint), 0.0),
                     };
                     // 位置源适配：汽水优先读播放器内核的真实媒体时钟（audio/video.currentTime），
                     // 它连续、精确，没有 DOM 进度条 1 秒一跳、滞后 0.75–1.7 秒的问题。
                     // 只有在读不到媒体元素时才回退到旧的 DOM 进度 + 播放态。
-                    let mc = crate::cdp_lyric::fetch_media_clock(media_hint_pos, media_hint_dur);
+                    let mc = crate::cdp_lyric::fetch_media_clock(media_hint_pos, media_hint_dur, alt_dur);
                     let pl = if let Some(m) = mc {
                         Some(!m.paused)
                     } else {

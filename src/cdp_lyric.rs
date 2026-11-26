@@ -310,8 +310,10 @@ fn media_value_to_clock(v: &serde_json::Value) -> Option<SodaMediaClock> {
 }
 
 /// 读取汽水播放器的真实播放时钟。`hint_pos`/`hint_dur` 用于在暂停时从历史媒体元素中
-/// 挑出当前曲目（而不是已播完的旧元素）。失败返回 None，由调用方回退到 DOM 进度。
-pub fn fetch_media_clock(hint_pos: f64, hint_dur: f64) -> Option<SodaMediaClock> {
+/// 挑出当前曲目（而不是已播完的旧元素）。`alt_dur` 为可选的第二匹配时长（试听时媒体元素
+/// 可能是“片段文件”(约 30s)，也可能是“整曲文件截取片段”(整曲时长)，两者都要认），
+/// 传 0 表示无备选。失败返回 None，由调用方回退到 DOM 进度/播放态。
+pub fn fetch_media_clock(hint_pos: f64, hint_dur: f64, alt_dur: f64) -> Option<SodaMediaClock> {
     // 快路径：页面里缓存过当前媒体元素（window.__winisleMedia），直接读属性。
     // 只有首次或曲目切换（时长/暂停位置明显不符）时才走下面的 queryObjects 全量扫描。
     let cached_expr = format!(
@@ -341,7 +343,16 @@ pub fn fetch_media_clock(hint_pos: f64, hint_dur: f64) -> Option<SodaMediaClock>
               P.load=function(){{remember(this);return ol.apply(this,arguments)}};
             }}
           }}catch(e){{}}
-          const hd={hd}, hp={hp};
+          const hd={hd}, hp={hp}, ad={ad};
+          // 时长匹配：主 hint（hd）或备选（ad）任一相近即算当前曲目。试听片段的媒体元素
+          // 时长要么是片段长度(约30s)、要么是整曲长度，用一个 hd 卡死会误杀真实在播元素。
+          const matchDur=function(d){{
+            if(!(isFinite(d)&&d>0.05)) return false;
+            if(hd>1&&Math.abs(d-hd)<=3) return true;
+            if(ad>1&&Math.abs(d-ad)<=3) return true;
+            if(hd<=1&&ad<=1) return true;
+            return false;
+          }};
           try{{
             // 事件追踪到的“最后一次真正播放中”的元素最可靠：timeupdate/playing/
             // seeking/seeked 只在真实的播放元素上触发，预加载元素不会误报到。
@@ -350,7 +361,7 @@ pub fn fetch_media_clock(hint_pos: f64, hint_dur: f64) -> Option<SodaMediaClock>
               if(act){{
                 const d=+act.duration, ct=+act.currentTime, rs=+act.readyState;
                 if(isFinite(d)&&d>0.05&&isFinite(ct)&&ct>=0
-                   && !(hd>1&&Math.abs(d-hd)>3) && !act.ended){{
+                   && matchDur(d) && !act.ended){{
                   return {{found:true,pos:ct,dur:d,paused:!!act.paused,ready:rs}};
                 }}
               }}
@@ -368,7 +379,7 @@ pub fn fetch_media_clock(hint_pos: f64, hint_dur: f64) -> Option<SodaMediaClock>
               try{{
                 const a=cand[i], d=+a.duration, ct=+a.currentTime, rs=+a.readyState;
                 if(!isFinite(d)||d<=0.05||!isFinite(ct)||ct<0) continue;
-                if(hd>1&&Math.abs(d-hd)>3) continue;
+                if(!matchDur(d)) continue;
                 // 停在结尾的旧元素永远排除：单曲循环/切歌后它会被误当成当前曲目。
                 if(a.paused&&ct>=d-2) continue;
                 // 汽水会预加载一批媒体元素，它们的 paused 可能一直是 false 但 currentTime
@@ -403,7 +414,8 @@ pub fn fetch_media_clock(hint_pos: f64, hint_dur: f64) -> Option<SodaMediaClock>
           }}catch(e){{return {{found:false}};}}
         }})()"#,
         hd = hint_dur,
-        hp = hint_pos
+        hp = hint_pos,
+        ad = alt_dur
     );
     if let Some(resp) = evaluate(&cached_expr) {
         if let Some(val) = resp
@@ -1115,6 +1127,30 @@ mod tests {
     }
 
     #[test]
+    fn parse_krc_keeps_per_char_segs() {
+        // 汽水官方 KRC：`[起始ms,时长ms]<偏移ms,时长ms,?>文字...`，逐字/逐词时间必须保留。
+        let krc = "[13077,4485]<0,263,0>like <263,262,0>a <525,280,0>moth <805,520,0>to <1325,300,0>a <1625,600,0>flame\n\
+                   [18000,3000]<0,500,0>Hello <500,500,0>world\n";
+        let l = super::parse_content(krc);
+        assert_eq!(l.len(), 2, "应解析出 2 行");
+        assert!((l[0].t - 13.077).abs() < 1e-6, "首行起始时间应≈13.077s");
+        assert_eq!(l[0].text, "like a moth to a flame");
+        assert_eq!(l[0].segs.len(), 6, "首行应有 6 个逐词 seg");
+        let sung: u32 = l[0].segs.iter().map(|s| s.n).sum();
+        let nospace = l[0].text.chars().filter(|c| !c.is_whitespace()).count() as u32;
+        assert_eq!(sung, nospace, "segs 的字符数之和应等于该行非空白字符数");
+        assert!((l[0].segs[0].t - 13.077).abs() < 1e-6 && (l[0].segs[0].dur - 0.263).abs() < 1e-6);
+        assert_eq!(l[0].segs[0].n, 4, "首段 'like' 4 个字符");
+        assert!(!l[1].segs.is_empty(), "第二行也应有逐字时间");
+
+        // 整行 LRC（无逐字时间）→ segs 为空，交由上层用估算回退（老缓存 / 网络整行歌词）。
+        let lrc = "[00:01.00]plain line\n";
+        let l2 = super::parse_content(lrc);
+        assert_eq!(l2.len(), 1);
+        assert!(l2[0].segs.is_empty(), "整行 LRC 不应有逐字 seg");
+    }
+
+    #[test]
     #[ignore]
     fn probe_trial_meta() {
         println!("trial_meta={:?}", super::fetch_trial_meta());
@@ -1136,7 +1172,7 @@ mod tests {
     #[test]
     #[ignore]
     fn probe_media_clock() {
-        let mc = super::fetch_media_clock(74.0, 273.7);
+        let mc = super::fetch_media_clock(74.0, 273.7, 0.0);
         eprintln!("MEDIA_CLOCK={:?}", mc);
         assert!(mc.is_some(), "fetch_media_clock returned None");
     }

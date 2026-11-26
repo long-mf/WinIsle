@@ -746,14 +746,28 @@ pub fn fetch_full(
         // 版本号 soda2/sodanet2：旧版 .soda.lrc 可能残留“同名不同曲”的错误歌词，直接弃用重新取。
         let soda_cache = d.join(format!("{}.soda2.lrc", key));
         let soda_net_cache = d.join(format!("{}.sodanet2.lrc", key));
+        // 逐字原始 KRC 缓存：{key}.soda2.krc 存汽水官方 KRC 原文（含每字/词的 <偏移,时长> 时间），
+        // 读回经 cdp_lyric::parse_content 还原 segs，保证卡拉OK高亮按真实人声逐字推进（自适应快慢）。
+        // 老缓存只有 .soda2.lrc（整行时间、无逐字），读取时回退到它；随后由 fetch_remote 走 CDP 升级为 .krc。
+        let soda_krc = d.join(format!("{}.soda2.krc", key));
+        let mut have_soda_krc = false;
         // 绝不读取任何网络来源的 .lrc/.yrc 缓存（避免历史错配又被读出来）。
         let cached_lines = if cached_pure {
             Some(instrumental_line())
         } else if soda {
-            std::fs::read_to_string(&soda_cache)
+            // 优先读逐字 KRC 缓存（保留 segs，逐字时间与真实人声同步）。
+            let krc_lines = std::fs::read_to_string(&soda_krc)
                 .ok()
-                .map(|s| filt(parse_lrc(&s)))
-                .filter(|v| !v.is_empty() && !stale(v))
+                .map(|s| filt(crate::cdp_lyric::parse_content(&s)))
+                .filter(|v| !v.is_empty() && !stale(v));
+            have_soda_krc = krc_lines.is_some();
+            krc_lines
+                .or_else(|| {
+                    std::fs::read_to_string(&soda_cache)
+                        .ok()
+                        .map(|s| filt(parse_lrc(&s)))
+                        .filter(|v| !v.is_empty() && !stale(v))
+                })
                 .or_else(|| {
                     std::fs::read_to_string(&soda_net_cache)
                         .ok()
@@ -775,7 +789,10 @@ pub fn fetch_full(
         let cached_cover = std::fs::read(&cp).ok().filter(|v| !v.is_empty());
         if cached_lines.is_some() || cached_cover.is_some() {
             dlog(&format!("cache hit {} lines={} cover={}B", title, cached_lines.as_ref().map(|v| v.len()).unwrap_or(0), cached_cover.as_ref().map(|v| v.len()).unwrap_or(0)));
-            if cached_lines.is_some() && cached_cover.is_some() {
+            // 汽水若只有整行时间缓存（老 .soda2.lrc，无逐字 .krc）且非纯音乐，不要就此返回：
+            // 继续走 fetch_remote 用 CDP 重新取一次逐字 KRC，把缓存升级为可逐字渲染（CDP 失败则回退整行缓存，不回归）。
+            let needs_soda_krc_upgrade = soda && !have_soda_krc && !cached_pure;
+            if cached_lines.is_some() && cached_cover.is_some() && !needs_soda_krc_upgrade {
                 return (cached_lines, cached_cover);
             }
             if cached_lines.is_none() && no_recent {
@@ -854,6 +871,8 @@ fn fetch_remote(
                     l.len()
                 ));
                 if let Some(d) = dir {
+                    // 存原始 KRC（含逐字时间），供下次命中时用 parse_content 还原 segs。
+                    let _ = std::fs::write(d.join(format!("{}.soda2.krc", key)), sl.content.as_bytes());
                     let body: String = l
                         .iter()
                         .map(|x| format!("[{:02}:{:05.2}]{}\n", (x.t as u32) / 60, x.t % 60.0, x.text))
