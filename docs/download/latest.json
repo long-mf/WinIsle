@@ -1,17 +1,17 @@
 {
-    "version": "0.1.66",
-    "notes": "WinIsle v0.1.66：① 修复汽水逐字歌词跟不上人声（缓存保留官方 KRC 逐字时间）；② 修复切到 VIP 试听歌时播放键显示“暂停”、进度与歌词冻结；③ 歌词区新增试听片段友好提示（按平台显示名称）。",
+    "version": "0.1.67",
+    "notes": "WinIsle v0.1.67：待办长内容自动换行，勾选与操作按钮保持在第一行；岛收缩或输入框失焦后保留尚未提交的草稿；新增待办置顶并自动滚动可见。",
     "setup": {
-        "name": "WinIsle-Setup-0.1.66.exe",
-        "url": "download/WinIsle-Setup-0.1.66.exe",
-        "size": 6114732,
-        "sha256": "50f38a83cf2502256dcf0424c29b753b4f8dccfa14806af8a76274a2ef00337e"
+        "name": "WinIsle-Setup-0.1.67.exe",
+        "url": "download/WinIsle-Setup-0.1.67.exe",
+        "size": 6114891,
+        "sha256": "58a9e26dd689fc603fd22d62fc8cf357b8dc30f3697f39d63090f1858826183d"
     },
     "portable": {
-        "name": "WinIsle-0.1.66-portable.zip",
-        "url": "download/WinIsle-0.1.66-portable.zip",
-        "size": 5386638,
-        "sha256": "9d1e20b97611df0e5d8d10c3e42b65defd722e2746e6c85ee893336febc5eb16"
+        "name": "WinIsle-0.1.67-portable.zip",
+        "url": "download/WinIsle-0.1.67-portable.zip",
+        "size": 5387295,
+        "sha256": "92419f462daee3aebcb1d5f97083198d2593ba2c4b6063602f3567e67ddb6d39"
     },
-    "pub_date": "2026-11-26"
+    "pub_date": "2026-11-27"
 }

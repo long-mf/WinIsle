@@ -2216,6 +2216,9 @@ if std::env::var_os("WINISLE_REMIND_DOT").is_some() {
             app.todo_debug_edit = true;
             app.todo_input = v;
         }
+        if let Ok(v) = std::env::var("WINISLE_TODO_DRAFT") {
+            app.todo_input = v;
+        }
         // 
         if std::env::var_os("WINISLE_TODO_EMPTYEDIT").is_some() {
             app.todo_debug_edit = true;
@@ -7660,6 +7663,12 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
             out.push('…');
             out
         }
+        fn wrap_galley(ui: &egui::Ui, text: &str, font: &egui::FontId, max: f32, color: egui::Color32) -> std::sync::Arc<egui::Galley> {
+            ui.fonts(|f| f.layout(text.to_string(), font.clone(), color, max.max(20.0)))
+        }
+        fn row_height(g: &egui::Galley) -> f32 {
+            (g.size().y + 9.0).max(26.0)
+        }
         fn draw_check(p: &egui::Painter, c: egui::Pos2, size: f32, col: egui::Color32) {
             let f = size / 16.0;
             let pts = vec![
@@ -7982,7 +7991,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
             if self.todo_filter == 0 || self.todo_filter == 1 {
                 let mut inc: Vec<Todo> =
                     self.todos.iter().filter(|t| !t.archived && !t.done).cloned().collect();
-                inc.sort_by_key(|t| t.id);
+                // 保持原有顺序；新建待办在插入时放到最前面
                 rows.push(Tr::G("未完成".to_string(), inc.len()));
                 for t in inc {
                     rows.push(Tr::T(t));
@@ -8046,6 +8055,10 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         let view_h = (list_bottom - list_top).max(1.0);
 
         // ?
+        let task_font = bold_font(12.5);
+        let arch_title_font = bold_font(12.0);
+        let act_font = bold_font(9.5);
+        let del_w = 20.0;
         let mut total_h = 0.0f32;
         let mut gi = 0;
         for row in &rows {
@@ -8057,7 +8070,24 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     total_h += 16.0;
                     gi += 1;
                 }
-                _ => total_h += 26.0,
+                Tr::T(t) => {
+                    let title_x = x0 + 25.0;
+                    let btn_area = if t.done {
+                        10.0 + text_w(ui, "归档", bold_font(9.5)) + 10.0
+                    } else {
+                        0.0
+                    };
+                    let avail = (x1 - del_w - btn_area - 8.0) - title_x;
+                    let g = wrap_galley(ui, &t.title, &task_font, avail, egui::Color32::WHITE);
+                    total_h += row_height(&g);
+                }
+                Tr::A(t) => {
+                    let rw = text_w(ui, "恢复", bold_font(9.5));
+                    let bw = 10.0 + rw + 10.0;
+                    let avail = (x1 - del_w - bw - 8.0) - (x0 + 10.0);
+                    let g = wrap_galley(ui, &t.title, &arch_title_font, avail, egui::Color32::WHITE);
+                    total_h += row_height(&g);
+                }
             }
         }
         let max_scroll = (total_h - view_h).max(0.0);
@@ -8104,10 +8134,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         let p: &egui::Painter = &lp;
         let mut y = list_top - self.todo_scroll + content_dy;
 
-        let task_font = bold_font(12.5);
         let glabel_font = bold_font(10.5);
-        let act_font = bold_font(9.5);
-        let arch_title_font = bold_font(12.0);
 
         // 
         let todos = &self.todos;
@@ -8117,8 +8144,6 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         let mut delete_id: Option<u64> = None;
         let mut commit_edit: Option<(u64, String)> = None;
         let interactive = true;
-        // ??
-        let del_w = 20.0;
 
         let mut first = true;
         for row in &rows {
@@ -8142,9 +8167,16 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     y += 16.0;
                 }
                 Tr::T(t) => {
-                    let row_rect = egui::Rect::from_min_size(egui::pos2(x0, y), egui::vec2(x1 - x0, 26.0));
-                    let ry = y + 13.0;
-                    let visible = row_rect.center().y >= list_top - 13.0 && row_rect.center().y <= list_bottom + 13.0;
+                    let title_x0 = x0 + 25.0;
+                    let btn_est = if t.done { 10.0 + text_w(ui, "归档", bold_font(9.5)) + 10.0 } else { 0.0 };
+                    let avail0 = (x1 - del_w - btn_est - 8.0) - title_x0;
+                    let gal = wrap_galley(ui, &t.title, &task_font, avail0, egui::Color32::WHITE);
+                    let row_h = row_height(&gal);
+                    let text_top = y + 4.5;
+                    let first_h = gal.rows.first().map(|r| r.rect.height()).unwrap_or(16.0);
+                    let ry = text_top + first_h * 0.5;
+                    let row_rect = egui::Rect::from_min_size(egui::pos2(x0, y), egui::vec2(x1 - x0, row_h));
+                    let visible = row_rect.bottom() >= list_top && row_rect.top() <= list_bottom;
                     if visible {
                         // checkbox
                         let cb_c = egui::pos2(x0 + 8.0, ry);
@@ -8163,7 +8195,6 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                             0.0
                         };
                         let avail = (x1 - del_w - btn_area - 8.0) - title_x;
-                        let shown = fit_text(ui, &t.title, task_font.clone(), avail);
                         let is_editing_row = !t.done && self.todo_edit_id == Some(t.id);
                         if is_editing_row {
                             // ---- 行内编辑（仅未完成）----
@@ -8239,12 +8270,12 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                             }
                         } else {
                             let tcol = if t.done { muted2 } else { ink };
-                            p.text(egui::pos2(title_x, ry), egui::Align2::LEFT_CENTER, &shown, task_font.clone(), tcol);
+                            p.galley(egui::pos2(title_x, text_top), gal.clone(), tcol);
                             // 未完成：点标题行内编辑（悬停 I 型光标 + 软激活预放开）
                             if !t.done && interactive && visible {
                                 let hit = egui::Rect::from_min_max(
-                                    egui::pos2(title_x - 2.0, ry - 11.0),
-                                    egui::pos2(x1 - del_w - 8.0, ry + 11.0),
+                                    egui::pos2(title_x - 2.0, y + 2.0),
+                                    egui::pos2(x1 - del_w - 8.0, y + row_h - 2.0),
                                 );
                                 let hovering = ui.rect_contains_pointer(hit);
                                 if hovering {
@@ -8277,11 +8308,14 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                         }
                         if t.done {
                             // ?
-                            let tw = text_w(ui, &shown, task_font.clone());
-                            p.line_segment(
-                                [egui::pos2(title_x, ry), egui::pos2(title_x + tw.min(avail), ry)],
-                                egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(107, 113, 128, wa(0.8))),
-                            );
+                            for gr in &gal.rows {
+                                let yc = text_top + gr.rect.center().y;
+                                let tw = gr.rect.width().min(avail);
+                                p.line_segment(
+                                    [egui::pos2(title_x, yc), egui::pos2(title_x + tw, yc)],
+                                    egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(107, 113, 128, wa(0.8))),
+                                );
+                            }
                             //  muted2 + 
                             // ?
                             let bw = btn_area;
@@ -8347,18 +8381,23 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                             }
                         }
                     }
-                    y += 26.0;
+                    y += row_h;
                 }
                 Tr::A(t) => {
-                    let ry = y + 13.0;
-                    let visible = ry >= list_top - 13.0 && ry <= list_bottom + 13.0;
+                    let rw = text_w(ui, "恢复", act_font.clone());
+                    let bw = 10.0 + rw + 10.0;
+                    let btn_x = x1 - del_w - bw;
+                    let avail = (btn_x - 8.0) - (x0 + 10.0);
+                    let gal = wrap_galley(ui, &t.title, &arch_title_font, avail, egui::Color32::WHITE);
+                    let row_h = row_height(&gal);
+                    let text_top = y + 4.5;
+                    let first_h = gal.rows.first().map(|r| r.rect.height()).unwrap_or(16.0);
+                    let ry = text_top + first_h * 0.5;
+                    let arow_rect = egui::Rect::from_min_size(egui::pos2(x0, y), egui::vec2(x1 - x0, row_h));
+                    let visible = arow_rect.bottom() >= list_top && arow_rect.top() <= list_bottom;
                     if visible {
-                        let rw = text_w(ui, "恢复", act_font.clone());
-                        let bw = 10.0 + rw + 10.0;
-                        let btn = egui::Rect::from_min_size(egui::pos2(x1 - del_w - bw, ry - 10.0), egui::vec2(bw, 20.0));
-                        let avail = (btn.left() - 8.0) - (x0 + 10.0);
-                        let shown = fit_text(ui, &t.title, arch_title_font.clone(), avail);
-                        p.text(egui::pos2(x0 + 10.0, ry), egui::Align2::LEFT_CENTER, &shown, arch_title_font.clone(), muted);
+                        let btn = egui::Rect::from_min_size(egui::pos2(btn_x, ry - 10.0), egui::vec2(bw, 20.0));
+                        p.galley(egui::pos2(x0 + 10.0, text_top), gal.clone(), muted);
                         // 
                         let rhov = interactive
                             && visible
@@ -8375,7 +8414,6 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                             }
                         }
                         // 
-                        let arow_rect = egui::Rect::from_min_size(egui::pos2(x0, y), egui::vec2(x1 - x0, 26.0));
                         let del_btn = egui::Rect::from_min_size(
                             egui::pos2(x1 - del_w, ry - 10.0),
                             egui::vec2(del_w, 20.0),
@@ -8402,7 +8440,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                             }
                         }
                     }
-                    y += 26.0;
+                    y += row_h;
                 }
             }
         }
@@ -8463,6 +8501,14 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     );
                 }
                 let inp_id = egui::Id::new("winisle_todo_input");
+                if self.todo_need_focus && !txt.is_empty() {
+                    if let Some(mut st) = egui::text_edit::TextEditState::load(ui.ctx(), inp_id) {
+                        st.cursor.set_char_range(Some(egui::text::CCursorRange::one(
+                            egui::text::CCursor::new(txt.chars().count()),
+                        )));
+                        st.store(ui.ctx(), inp_id);
+                    }
+                }
                 // 
                 if std::env::var_os("WINISLE_TODO_SELALL").is_some() && !txt.is_empty() {
                     let n = txt.chars().count();
@@ -8555,7 +8601,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                         let txt = self.todo_input.trim().to_string();
                         if !txt.is_empty() {
                             self.todo_next_id += 1;
-                            self.todos.push(Todo {
+                            self.todos.insert(0, Todo {
                                 id: self.todo_next_id,
                                 title: txt,
                                 done: false,
@@ -8564,7 +8610,8 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                                 done_seq: 0,
                             });
                             save_todos(&self.todos);
-                            self.todo_scroll_target = 1.0e7;
+                            // 新待办在最前面，滚回顶部让它立即可见
+                            self.todo_scroll_target = 0.0;
                         }
                         // *
                         // 
@@ -8576,8 +8623,10 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                         //  gui
                         ui.ctx().memory_mut(|m| m.request_focus(inp_id));
                     } else {
-                        // ?/ Esc?
-                        self.todo_input.clear();
+                        let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+                        if esc {
+                            self.todo_input.clear();
+                        }
                         self.todo_editing = false;
                         self.todo_need_focus = false;
                         self.todo_was_focused = false;
@@ -8585,12 +8634,18 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                 }
             } else {
                 draw_plus(painter, egui::pos2(x0 + 14.0, addrow_top + add_h * 0.5), 10.5, muted2);
+                let draft = self.todo_input.trim().to_string();
+                let ph = if draft.is_empty() {
+                    "添加待办…".to_string()
+                } else {
+                    fit_text(ui, &draft, egui::FontId::proportional(11.5), (x1 - x0 - 84.0).max(24.0))
+                };
                 painter.text(
                     egui::pos2(x0 + 28.0, addrow_top + add_h * 0.5),
                     egui::Align2::LEFT_CENTER,
-                    "添加待办…",
+                    &ph,
                     egui::FontId::proportional(11.5),
-                    muted2,
+                    if draft.is_empty() { muted2 } else { ink },
                 );
                 painter.text(
                     egui::pos2(x1 - 12.0, addrow_top + add_h * 0.5),
@@ -8604,7 +8659,6 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     .on_hover_cursor(egui::CursorIcon::Text);
                 if ar.clicked() {
                     self.todo_editing = true;
-                    self.todo_input.clear();
                     self.todo_need_focus = true;
                     self.todo_focus_tries = 30;
                     self.todo_was_focused = false;
