@@ -64,6 +64,7 @@ const LYRIC_COLLAPSED_PT: f32 = 13.0;
 const CW_MAX: f32 = W_EXPANDED;
 const H_COLLAPSED: f32 = 30.0;
 const W_EXPANDED: f32 = 520.0;
+const RAIL_W: f32 = 60.0;
 const H_EXPANDED: f32 = 300.0;
 /// )
 /// /?
@@ -1028,6 +1029,21 @@ fn save_todos(todos: &[Todo]) {
         .collect();
     let text = serde_json::Value::Array(arr).to_string();
     let _ = std::fs::write(todo_path(), text);
+}
+
+/// 重置待办添加框的 TextEdit 持久状态。
+/// egui 0.31 在 IME 组词期间会把 `ime_enabled` 记在 TextEditState 里；若组词中途
+/// 窗口失焦（鼠标移出岛、点击别的程序），这个标志可能会一直保持 true，
+/// 而 TextEdit 在 ime_enabled=true 时会主动丢弃 Backspace/方向键事件——
+/// 表现就是：拼音还留在框里、光标也像在闪，但退格怎么按都删不掉。
+/// 重新进入编辑 / 收起页面时把状态整体重置，确保 IME 标志回到 false，退格恢复。
+fn reset_todo_input_ime(ctx: &egui::Context, text: &str) {
+    let id = egui::Id::new("winisle_todo_input");
+    let mut st = egui::text_edit::TextEditState::default();
+    st.cursor.set_char_range(Some(egui::text::CCursorRange::one(
+        egui::text::CCursor::new(text.chars().count()),
+    )));
+    st.store(ctx, id);
 }
 
 // ===== /  /  /  / =====
@@ -5502,7 +5518,7 @@ fn draw_expanded_panel(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, pi
             self.mark_upd_collapsed_seen();
         }
         let a = (((e - 0.5) * 2.0) * 255.0).clamp(0.0, 255.0) as u8;
-        let rail_w = 60.0f32;
+        let rail_w = RAIL_W;
         let muted = egui::Color32::from_rgba_unmultiplied(150, 158, 175, a);
         let accent = egui::Color32::from_rgba_unmultiplied(52, 211, 153, a);
 
@@ -7768,6 +7784,9 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
 
         let x0 = rect.left() + CONTENT_PAD_X;
         let x1 = rect.right() - CONTENT_PAD_X;
+        // 展开/收起过渡期间内容区宽度会变化；文本换行宽度固定按完全展开时的宽度计算，
+        // 过渡中只裁剪、不重新换行，避免已换行的标题先被压回一行再展开。
+        let wrap_x1 = x1.max(x0 + (W_EXPANDED - RAIL_W - 2.0 * CONTENT_PAD_X));
         let y0 = rect.top() + CONTENT_PAD_T;
 
         // ---- header ----
@@ -8077,14 +8096,19 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     } else {
                         0.0
                     };
-                    let avail = (x1 - del_w - btn_area - 8.0) - title_x;
-                    let g = wrap_galley(ui, &t.title, &task_font, avail, egui::Color32::WHITE);
+                    let avail = (wrap_x1 - del_w - btn_area - 8.0) - title_x;
+                    let htext = if !t.done && self.todo_edit_id == Some(t.id) {
+                        self.todo_edit_buf.clone()
+                    } else {
+                        t.title.clone()
+                    };
+                    let g = wrap_galley(ui, &htext, &task_font, avail, egui::Color32::WHITE);
                     total_h += row_height(&g);
                 }
                 Tr::A(t) => {
                     let rw = text_w(ui, "恢复", bold_font(9.5));
                     let bw = 10.0 + rw + 10.0;
-                    let avail = (x1 - del_w - bw - 8.0) - (x0 + 10.0);
+                    let avail = (wrap_x1 - del_w - bw - 8.0) - (x0 + 10.0);
                     let g = wrap_galley(ui, &t.title, &arch_title_font, avail, egui::Color32::WHITE);
                     total_h += row_height(&g);
                 }
@@ -8143,7 +8167,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
         let mut restore_id: Option<u64> = None;
         let mut delete_id: Option<u64> = None;
         let mut commit_edit: Option<(u64, String)> = None;
-        let interactive = true;
+        let interactive = e > 0.9;
 
         let mut first = true;
         for row in &rows {
@@ -8168,9 +8192,16 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                 }
                 Tr::T(t) => {
                     let title_x0 = x0 + 25.0;
+                    let tcol = if t.done { muted2 } else { ink };
                     let btn_est = if t.done { 10.0 + text_w(ui, "归档", bold_font(9.5)) + 10.0 } else { 0.0 };
-                    let avail0 = (x1 - del_w - btn_est - 8.0) - title_x0;
-                    let gal = wrap_galley(ui, &t.title, &task_font, avail0, egui::Color32::WHITE);
+                    let avail0 = (wrap_x1 - del_w - btn_est - 8.0) - title_x0;
+                    let is_editing_row = !t.done && self.todo_edit_id == Some(t.id);
+                    let gal_text = if is_editing_row {
+                        self.todo_edit_buf.clone()
+                    } else {
+                        t.title.clone()
+                    };
+                    let gal = wrap_galley(ui, &gal_text, &task_font, avail0, tcol);
                     let row_h = row_height(&gal);
                     let text_top = y + 4.5;
                     let first_h = gal.rows.first().map(|r| r.rect.height()).unwrap_or(16.0);
@@ -8194,13 +8225,13 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                         } else {
                             0.0
                         };
-                        let avail = (x1 - del_w - btn_area - 8.0) - title_x;
-                        let is_editing_row = !t.done && self.todo_edit_id == Some(t.id);
+                        let avail = (wrap_x1 - del_w - btn_area - 8.0) - title_x;
                         if is_editing_row {
                             // ---- 行内编辑（仅未完成）----
+                            let edit_h = (gal.size().y).max(22.0);
                             let er = egui::Rect::from_min_max(
-                                egui::pos2(title_x, ry - 11.0),
-                                egui::pos2(title_x + avail.max(60.0), ry + 11.0),
+                                egui::pos2(title_x, text_top),
+                                egui::pos2(title_x + avail.max(60.0), text_top + edit_h),
                             );
                             let eid = egui::Id::new(("winisle_todo_item", t.id));
                             if ui.rect_contains_pointer(er) {
@@ -8231,13 +8262,17 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                             if force_caret {
                                 ui.ctx().input_mut(|i| i.focused = true);
                             }
+                            // 回车用于结束编辑，不写入换行；换行由宽度自动处理。
+                            let enter_pressed = ui.input_mut(|i| {
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                            });
                             let buf = &mut self.todo_edit_buf;
-                            let te = egui::TextEdit::singleline(buf)
+                            let te = egui::TextEdit::multiline(buf)
                                 .frame(false)
                                 .id(eid)
                                 .font(task_font.clone())
                                 .text_color(ink)
-                                .vertical_align(egui::Align::Center)
+                                .desired_width(avail.max(60.0))
                                 .margin(egui::Margin::symmetric(0, 0));
                             ui.scope(|ui| {
                                 let v = &mut ui.style_mut().visuals;
@@ -8255,7 +8290,10 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                             if force_caret {
                                 ui.ctx().input_mut(|i| i.focused = vp_before);
                             }
-                            let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            // 保险：无论来源，标题都不保留手动换行（换行只由宽度自动折行决定）。
+                            if self.todo_edit_buf.contains('\n') {
+                                self.todo_edit_buf = self.todo_edit_buf.replace('\n', "");
+                            }
                             let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
                             let mem_now = ui.ctx().memory(|m| m.has_focus(eid));
                             // 即时保存：编辑中只要内容变化就写回（不等回车）
@@ -8263,19 +8301,18 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                             if !val.is_empty() && val != t.title {
                                 commit_edit = Some((t.id, val));
                             }
-                            if enter || esc || (self.todo_edit_was_focused && !mem_now) {
+                            if enter_pressed || esc || (self.todo_edit_was_focused && !mem_now) {
                                 self.todo_edit_id = None;
                                 self.todo_edit_need_focus = false;
                                 self.todo_edit_was_focused = false;
                             }
                         } else {
-                            let tcol = if t.done { muted2 } else { ink };
                             p.galley(egui::pos2(title_x, text_top), gal.clone(), tcol);
                             // 未完成：点标题行内编辑（悬停 I 型光标 + 软激活预放开）
                             if !t.done && interactive && visible {
                                 let hit = egui::Rect::from_min_max(
                                     egui::pos2(title_x - 2.0, y + 2.0),
-                                    egui::pos2(x1 - del_w - 8.0, y + row_h - 2.0),
+                                    egui::pos2(wrap_x1 - del_w - 8.0, y + row_h - 2.0),
                                 );
                                 let hovering = ui.rect_contains_pointer(hit);
                                 if hovering {
@@ -8320,7 +8357,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                             // ?
                             let bw = btn_area;
                             let btn = egui::Rect::from_min_size(
-                                egui::pos2(x1 - del_w - bw, ry - 10.0),
+                                egui::pos2(wrap_x1 - del_w - bw, ry - 10.0),
                                 egui::vec2(bw, 20.0),
                             );
                             let hov = interactive
@@ -8346,7 +8383,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                         }
                         // ?
                         let del_btn = egui::Rect::from_min_size(
-                            egui::pos2(x1 - del_w, ry - 10.0),
+                            egui::pos2(wrap_x1 - del_w, ry - 10.0),
                             egui::vec2(del_w, 20.0),
                         );
                         let row_hover = interactive && visible && ui.rect_contains_pointer(row_rect);
@@ -8386,9 +8423,9 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                 Tr::A(t) => {
                     let rw = text_w(ui, "恢复", act_font.clone());
                     let bw = 10.0 + rw + 10.0;
-                    let btn_x = x1 - del_w - bw;
+                    let btn_x = wrap_x1 - del_w - bw;
                     let avail = (btn_x - 8.0) - (x0 + 10.0);
-                    let gal = wrap_galley(ui, &t.title, &arch_title_font, avail, egui::Color32::WHITE);
+                    let gal = wrap_galley(ui, &t.title, &arch_title_font, avail, muted);
                     let row_h = row_height(&gal);
                     let text_top = y + 4.5;
                     let first_h = gal.rows.first().map(|r| r.rect.height()).unwrap_or(16.0);
@@ -8415,7 +8452,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                         }
                         // 
                         let del_btn = egui::Rect::from_min_size(
-                            egui::pos2(x1 - del_w, ry - 10.0),
+                            egui::pos2(wrap_x1 - del_w, ry - 10.0),
                             egui::vec2(del_w, 20.0),
                         );
                         let row_hover = interactive && visible && ui.rect_contains_pointer(arow_rect);
@@ -8558,6 +8595,14 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     ui.ctx().input_mut(|i| i.focused = restore);
                 }
                 self.todo_input = txt;
+                // 编辑框已绘制但当前没有键盘焦点时（例如窗口刚被重新激活），
+                // 点一下输入框要主动把焦点要回来，否则退格/输入都不会生效。
+                if _tresp.clicked() {
+                    ui.ctx().memory_mut(|m| m.request_focus(inp_id));
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Focus);
+                    reset_todo_input_ime(ui.ctx(), &self.todo_input);
+                    self.todo_was_focused = true;
+                }
                 // egui mem.has_focus
                 // Response::has_focus() OS false
                 // / egui 
@@ -8627,6 +8672,7 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                         if esc {
                             self.todo_input.clear();
                         }
+                        reset_todo_input_ime(ui.ctx(), &self.todo_input);
                         self.todo_editing = false;
                         self.todo_need_focus = false;
                         self.todo_was_focused = false;
@@ -8658,6 +8704,8 @@ if max_scroll > 4.0 && self.w_scroll_vis > 0.01 {
                     .interact(add_rect, ui.id().with("todo_addrow"), egui::Sense::click())
                     .on_hover_cursor(egui::CursorIcon::Text);
                 if ar.clicked() {
+                    // 重新进入编辑前清掉上一位输入残留的 IME 状态（含 ime_enabled 卡 true 的情况）。
+                    reset_todo_input_ime(ui.ctx(), &self.todo_input);
                     self.todo_editing = true;
                     self.todo_need_focus = true;
                     self.todo_focus_tries = 30;
@@ -10479,6 +10527,21 @@ if let Ok(v) = std::env::var("WINISLE_IDLE_FACE") {
         self.poll_weather();
         self.poll_city_search();
         self.ensure_window(ctx, frame);
+        // 待办页收起（或离开待办页）时退出编辑态，但保留 todo_input 草稿。
+        // 否则输入法组词/文本输入框会在窗口失焦后仍处于“编辑中”状态：再次展开时
+        // 输入框看似还在，实际没有键盘焦点，退格删不掉里面的拼音。
+        if self.active == Module::Todo && self.expanded < 0.5 && !self.todo_debug_edit {
+            self.todo_editing = false;
+            self.todo_need_focus = false;
+            self.todo_was_focused = false;
+            self.todo_edit_id = None;
+            self.todo_edit_need_focus = false;
+            self.todo_edit_was_focused = false;
+            reset_todo_input_ime(ctx, &self.todo_input);
+            if !self.w_city_search && !self.remind_soft_hover && self.remind_form.is_none() {
+                platform::set_activatable_soft(self.hwnd, false);
+            }
+        }
         if (self.active != Module::Todo || self.show_settings) && !self.todo_debug_edit {
             self.todo_editing = false;
             self.todo_need_focus = false;
@@ -10486,6 +10549,7 @@ if let Ok(v) = std::env::var("WINISLE_IDLE_FACE") {
             self.todo_edit_id = None;
             self.todo_edit_need_focus = false;
             self.todo_edit_was_focused = false;
+            reset_todo_input_ime(ctx, &self.todo_input);
             // 
             if !self.w_city_search && !self.remind_soft_hover && self.remind_form.is_none() {
                 platform::set_activatable_soft(self.hwnd, false);
